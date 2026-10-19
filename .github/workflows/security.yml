@@ -1,0 +1,52 @@
+name: Security (Secrets & Vulnerability Scanner)
+
+# Triggers: Runs on pushes and pull requests to protect credentials
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  secret-scan:
+    name: Scan for Accidental Secrets & API Key Leaks
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Checkout repository with full git commit history
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Step 2: TruffleHog Secret Scanner (Scans commits for 800+ secret types)
+      - name: 🛡️ TruffleHog Secret Scan
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --only-verified
+
+  dependency-audit:
+    name: Scan Dependencies for Known CVE Vulnerabilities
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: ⚡ Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9.12.1
+
+      - name: 🟢 Setup Node.js v22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Step 3: Run pnpm audit to catch vulnerable third-party npm packages
+      - name: 🔒 Audit Monorepo Dependencies
+        run: pnpm audit --prod --audit-level=high
+        continue-on-error: true

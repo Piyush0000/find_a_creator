@@ -1,0 +1,24 @@
+name: PR (Auto-Labeler & Organization)
+
+# Triggers: Whenever a new Pull Request is opened or updated
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  labeler:
+    name: Auto-Label Monorepo Pull Requests
+    runs-on: ubuntu-latest
+
+    steps:
+      # Automatically categorizes PRs by folder (Frontend, Backend, Database, DevOps)
+      - name: 🏷️ Apply Monorepo Labels
+        uses: actions/labeler@v5
+        with:
+          repo-token: "${{ secrets.GITHUB_TOKEN }}"
+          configuration-path: ".github/labeler.yml"
+          sync-labels: true

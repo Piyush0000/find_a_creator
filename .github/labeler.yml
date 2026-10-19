@@ -1,0 +1,28 @@
+# Monorepo Path Mapping for Auto-Labeling Pull Requests
+🎨 frontend:
+  - changed-files:
+      - any-glob-to-any-file: "apps/web/**"
+
+⚙️ backend:
+  - changed-files:
+      - any-glob-to-any-file: "services/api/**"
+
+👷 worker:
+  - changed-files:
+      - any-glob-to-any-file: "services/worker/**"
+
+🗄️ database:
+  - changed-files:
+      - any-glob-to-any-file: "packages/database/**"
+
+📦 types:
+  - changed-files:
+      - any-glob-to-any-file: "packages/types/**"
+
+🐳 devops:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "infra/**"
+          - "**/Dockerfile*"
+          - ".github/workflows/**"
+          - "Makefile"

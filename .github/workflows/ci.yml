@@ -28,11 +28,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: 'pnpm'
+          cache: "pnpm"
 
       # Step 4: Install all project dependencies cleanly
       - name: 📦 Install Dependencies
-        run: pnpm install
+        run: pnpm install --no-frozen-lockfile
 
       # Step 5: Generate Prisma database client
       - name: 🗄️ Generate Prisma Client

@@ -1,0 +1,69 @@
+name: Release (Publish Docker Images to GHCR)
+
+# Triggers: Only when code is officially merged into 'main' (or triggered manually)
+on:
+  push:
+    branches: [main]
+    paths:
+      - "services/**"
+      - "packages/**"
+      - "**/Dockerfile*"
+      - "package.json"
+      - "pnpm-lock.yaml"
+  workflow_dispatch: # Allows 1-click manual trigger from GitHub web UI
+
+# Grants permission to push packages to GitHub Container Registry
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish-images:
+    name: Build & Push Production Docker Images
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Checkout the code from main branch
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      # Step 2: Set up Docker Buildx for optimized multi-layer builds
+      - name: 🐳 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Step 3: Authenticate with GitHub Container Registry (Uses built-in GITHUB_TOKEN)
+      - name: 🔑 Log in to GitHub Container Registry (GHCR)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Step 4: Downcase repository name for Docker registry tags (Docker requires all lowercase)
+      - name: 🏷️ Prepare Repository Name
+        id: prep
+        run: |
+          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          echo "repo=$REPO_LOWER" >> $GITHUB_OUTPUT
+
+      # Step 5: Build & Push Backend API Image to GHCR
+      - name: 🚀 Build & Push API Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: services/api/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ steps.prep.outputs.repo }}/api:latest
+            ghcr.io/${{ steps.prep.outputs.repo }}/api:${{ github.sha }}
+
+      # Step 6: Build & Push Background Worker Image to GHCR
+      - name: 🚀 Build & Push Worker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: services/worker/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ steps.prep.outputs.repo }}/worker:latest
+            ghcr.io/${{ steps.prep.outputs.repo }}/worker:${{ github.sha }}
