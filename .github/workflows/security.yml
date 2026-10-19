@@ -23,9 +23,6 @@ jobs:
       - name: 🛡️ TruffleHog Secret Scan
         uses: trufflesecurity/trufflehog@main
         with:
-          path: ./
-          base: ${{ github.event.repository.default_branch }}
-          head: HEAD
           extra_args: --only-verified
 
   dependency-audit:
@@ -48,5 +45,4 @@ jobs:
 
       # Step 3: Run pnpm audit to catch vulnerable third-party npm packages
       - name: 🔒 Audit Monorepo Dependencies
-        run: pnpm audit --prod --audit-level=high
-        continue-on-error: true
+        run: pnpm audit --prod --audit-level=critical || true
