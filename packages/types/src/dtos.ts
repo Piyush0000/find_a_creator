@@ -1,0 +1,36 @@
+import { z } from 'zod';
+import { UserRole } from './enums.js';
+
+export const RegisterUserSchema = z.object({
+  email: z.string().email(),
+  phoneNumber: z.string().min(10).max(15),
+  password: z.string().min(8, 'Password must be at least 8 characters'),
+  role: z.enum([UserRole.MERCHANT, UserRole.CREATOR])
+});
+
+export const LoginUserSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1)
+});
+
+export const CreateCollabBriefSchema = z.object({
+  creatorId: z.string().uuid(),
+  productName: z.string().min(2),
+  productLink: z.string().url(),
+  productPrice: z.number().positive(),
+  scriptGuidelines: z.string().min(20, 'Please provide detailed script/talking points'),
+  videoHooks: z.string().min(10, 'Specify the opening 3-second hook'),
+  aspectRatio: z.enum(['9:16', '16:9', '1:1']).default('9:16'),
+  deliverableType: z.string().default('1 UGC Video Ad (30-60s)'),
+  commissionPointsPerSale: z.number().int().min(10).default(100)
+});
+
+export const OrderWebhookPayloadSchema = z.object({
+  event: z.literal('order.completed'),
+  orderId: z.string(),
+  orderTotal: z.number().positive(),
+  currency: z.string().default('INR'),
+  utmCreatorId: z.string().optional(),
+  couponCode: z.string().optional(),
+  createdAt: z.string()
+});

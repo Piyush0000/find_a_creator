@@ -1,0 +1,197 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  MERCHANT
+  CREATOR
+  SUPER_ADMIN
+}
+
+enum SubscriptionPlan {
+  FREE_TRIAL
+  STARTER
+  GROWTH
+  ENTERPRISE
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  EXPIRED
+  PAST_DUE
+}
+
+enum CollabStatus {
+  BRIEF_SUBMITTED          // Dispatched to Creator & Admin
+  EVOC_APPROVED            // EVOC Ops cleared the brief
+  CREATOR_ACCEPTED        // Creator agreed to shoot ad
+  SAMPLE_DISPATCHED      // Sample in transit via EVOC Logistics
+  DRAFT_PENDING_EVOC      // 100% PRIVATE: Visible only to EVOC Ops
+  DRAFT_PENDING_MERCHANT  // STILL PRIVATE: Unlocked for Merchant review
+  ASSET_DELIVERED          // Merchant approved, received ad asset
+  CAMPAIGN_ACTIVE          // Ad running with UTM tracking
+  COMPLETED
+  DECLINED
+}
+
+enum PointsTransactionType {
+  PURCHASE_COMMISSION
+  MILESTONE_BONUS
+  PAYOUT_REDEEMED
+}
+
+enum PointsStatus {
+  LOCKED
+  SETTLED
+  CANCELLED
+}
+
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  email        String    @unique
+  phoneNumber  String    @unique
+  passwordHash String
+  role         UserRole
+  isVerified   Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  merchantProfile MerchantProfile?
+  creatorProfile  CreatorProfile?
+
+  @@map("users")
+}
+
+model MerchantProfile {
+  id                    String             @id @default(uuid()) @db.Uuid
+  userId                String             @unique @db.Uuid
+  brandName             String
+  websiteUrl            String?
+  subscriptionPlan      SubscriptionPlan   @default(STARTER)
+  subscriptionStatus    SubscriptionStatus @default(ACTIVE)
+  subscriptionExpiresAt DateTime?
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  user                  User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  collabs               CollaborationRequest[]
+  reviewsGiven          CreatorReview[]
+
+  @@map("merchant_profiles")
+}
+
+model CreatorProfile {
+  id                String   @id @default(uuid()) @db.Uuid
+  userId            String   @unique @db.Uuid
+  displayAlias      String   // e.g. "Rohit S. - Grooming & Tech" (Masked name)
+  category          String   // "Beauty", "Fashion", "Tech", "Fitness"
+  city              String?
+  contentStyles     String[] // ["Unboxing", "Testimonial", "Hook+Problem+Solution"]
+  bioSummary        String?
+  pointsBalance     Int      @default(0)
+  upiIdEncrypted    String?  // Kept encrypted at rest, never visible to merchants
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user              User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  portfolioItems    CreatorPortfolioItem[]
+  reviews           CreatorReview[]
+  collabs           CollaborationRequest[]
+  pointsLedger      EvocPointsLedger[]
+
+  @@map("creator_profiles")
+}
+
+model CreatorPortfolioItem {
+  id          String   @id @default(uuid()) @db.Uuid
+  creatorId   String   @db.Uuid
+  videoUrl    String
+  thumbnailUrl String?
+  caption     String?
+  aspectRatio String   @default("9:16") // "9:16", "16:9"
+  viewsCount  Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  creator     CreatorProfile @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@map("creator_portfolio_items")
+}
+
+model CreatorReview {
+  id          String   @id @default(uuid()) @db.Uuid
+  creatorId   String   @db.Uuid
+  merchantId  String   @db.Uuid
+  rating      Int      // 1 to 5
+  reviewText  String
+  createdAt   DateTime @default(now())
+
+  creator     CreatorProfile  @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  merchant    MerchantProfile @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@map("creator_reviews")
+}
+
+model CollaborationRequest {
+  id                      String       @id @default(uuid()) @db.Uuid
+  merchantId              String       @db.Uuid
+  creatorId               String       @db.Uuid
+  productName             String
+  productLink             String
+  productPrice            Decimal      @db.Decimal(10, 2)
+  scriptGuidelines        String       // Talking points & creative brief
+  videoHooks              String       // Opening 3-5 seconds hook
+  aspectRatio             String       @default("9:16")
+  deliverableType         String       @default("1 UGC Video Ad (30-60s)")
+  commissionPointsPerSale Int          @default(100)
+  status                  CollabStatus @default(BRIEF_SUBMITTED)
+  
+  // Deliverable Tracking
+  draftVideoUrl           String?      // Private S3 URL
+  evocReviewNotes         String?      // Internal notes from EVOC Ops
+  merchantReviewNotes     String?      // Feedback from merchant
+  approvedVideoUrl        String?      // Final high-res asset for merchant ads
+  
+  // Attribution & Marketing
+  utmTrackingSlug         String?      @unique // e.g. "evoc_cr_8492"
+  createdAt               DateTime     @default(now())
+  updatedAt               DateTime     @updatedAt
+
+  merchant                MerchantProfile @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  creator                 CreatorProfile  @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  attributions            OrderAttribution[]
+
+  @@map("collaboration_requests")
+}
+
+model EvocPointsLedger {
+  id              String                @id @default(uuid()) @db.Uuid
+  creatorId       String                @db.Uuid
+  pointsDelta     Int                   // Positive for credits, negative for debits
+  transactionType PointsTransactionType
+  status          PointsStatus          @default(LOCKED)
+  referenceId     String?               // External Order ID or Collab ID
+  description     String?
+  createdAt       DateTime              @default(now())
+
+  creator         CreatorProfile        @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@map("evoc_points_ledger")
+}
+
+model OrderAttribution {
+  id           String               @id @default(uuid()) @db.Uuid
+  collabId     String               @db.Uuid
+  orderId      String               @unique // External Order ID from EVOC Checkout
+  orderTotal   Decimal              @db.Decimal(10, 2)
+  pointsEarned Int
+  createdAt    DateTime             @default(now())
+
+  collab       CollaborationRequest @relation(fields: [collabId], references: [id], onDelete: Cascade)
+
+  @@map("order_attributions")
+}

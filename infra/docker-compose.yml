@@ -1,0 +1,103 @@
+name: evoc-creator-fullstack
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: evoc_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-evoc_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-evoc_secret_2026}
+      POSTGRES_DB: ${POSTGRES_DB:-evoc_creator_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-evoc_admin} -d ${POSTGRES_DB:-evoc_creator_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - evoc-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: evoc_redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - evoc-net
+
+  api:
+    build:
+      context: ..
+      dockerfile: services/api/Dockerfile
+    container_name: evoc_api
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      PORT: 4000
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-evoc_admin}:${POSTGRES_PASSWORD:-evoc_secret_2026}@postgres:5432/${POSTGRES_DB:-evoc_creator_db}
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-super_secret_jwt_key_evoc_2026}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - evoc-net
+
+  worker:
+    build:
+      context: ..
+      dockerfile: services/worker/Dockerfile
+    container_name: evoc_worker
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-evoc_admin}:${POSTGRES_PASSWORD:-evoc_secret_2026}@postgres:5432/${POSTGRES_DB:-evoc_creator_db}
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - evoc-net
+
+  web:
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+    container_name: evoc_web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:4000
+    depends_on:
+      - api
+    networks:
+      - evoc-net
+
+networks:
+  evoc-net:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  redis-data:
