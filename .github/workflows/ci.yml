@@ -1,0 +1,50 @@
+name: CI (Code Quality & Build Verification)
+
+# Triggers: Runs automatically on every push or Pull Request targeting the 'main' branch
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    name: Typecheck & Build Monorepo
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Download repository code onto GitHub's cloud runner
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      # Step 2: Install pnpm package manager
+      - name: ⚡ Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9.12.1
+
+      # Step 3: Install Node.js v22 and cache pnpm dependencies for fast runs
+      - name: 🟢 Setup Node.js v22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      # Step 4: Install all project dependencies cleanly
+      - name: 📦 Install Dependencies
+        run: pnpm install
+
+      # Step 5: Generate Prisma database client
+      - name: 🗄️ Generate Prisma Client
+        run: pnpm db:generate
+
+      # Step 6: Workspace-wide TypeScript validation (Fails if anyone writes broken types)
+      - name: 🔍 Typecheck All Packages & Services
+        run: pnpm -r exec tsc --noEmit
+
+      # Step 7: Build all Next.js apps and backend services
+      - name: 🏗️ Build All Workspaces
+        run: pnpm build
+        env:
+          DATABASE_URL: "postgresql://mock_user:mock_pass@localhost:5432/mock_db"
+          JWT_SECRET: "ci_testing_secret_key_2026"
