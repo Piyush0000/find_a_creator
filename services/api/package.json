@@ -5,6 +5,7 @@
   "main": "./src/main.ts",
   "scripts": {
     "dev": "tsx watch src/main.ts",
+    "test:brief": "tsx src/test-brief.ts",
     "build": "tsc",
     "start": "node dist/main.js"
   },
