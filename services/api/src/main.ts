@@ -5,6 +5,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
 
+// Load .env from root and local folder
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 dotenv.config({ path: path.resolve(process.cwd(), '../../.env') });
 dotenv.config();

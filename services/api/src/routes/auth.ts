@@ -77,9 +77,17 @@ authRouter.post('/register', async (req, res) => {
       }
     });
 
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) {
+      console.error('Server configuration error: JWT_SECRET environment variable is missing');
+      return res.status(500).json({
+        error: 'Server configuration error: JWT_SECRET environment variable is missing'
+      });
+    }
+
     const token = jwt.sign(
       { userId: user.id, email: user.email, role: user.role },
-      process.env.JWT_SECRET || 'evoc-local-development-fallback',
+      jwtSecret,
       { expiresIn: '7d' }
     );
 
@@ -127,9 +135,17 @@ authRouter.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) {
+      console.error('Server configuration error: JWT_SECRET environment variable is missing');
+      return res.status(500).json({
+        error: 'Server configuration error: JWT_SECRET environment variable is missing'
+      });
+    }
+
     const token = jwt.sign(
       { userId: user.id, email: user.email, role: user.role },
-      process.env.JWT_SECRET || 'evoc-local-development-fallback',
+      jwtSecret,
       { expiresIn: '7d' }
     );
 

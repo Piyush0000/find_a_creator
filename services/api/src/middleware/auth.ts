@@ -24,7 +24,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
 
   const token = authHeader.split(' ')[1];
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'evoc_secret_key_2026') as AuthUser;
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'super_secret_jwt_key_evoc_2026') as AuthUser;
     req.user = decoded;
     next();
   } catch {
