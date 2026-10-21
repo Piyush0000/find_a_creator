@@ -64,6 +64,7 @@ collabsRouter.patch(
   '/:id/evoc-review',
   requireAuth,
   requireRole(UserRole.SUPER_ADMIN),
+  antiLeakScan(['notes']),
   async (req, res) => {
     try {
       const { id } = req.params;
@@ -93,6 +94,7 @@ collabsRouter.patch(
   '/:id/merchant-approval',
   requireAuth,
   requireRole(UserRole.MERCHANT),
+  antiLeakScan(['notes']),
   async (req, res) => {
     try {
       const { id } = req.params;
