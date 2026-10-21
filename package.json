@@ -16,9 +16,11 @@
     "docker:all:up": "docker compose -f infra/docker-compose.yml up --build -d",
     "docker:all:down": "docker compose -f infra/docker-compose.yml down",
     "db:generate": "pnpm --filter @evoc/database db:generate",
+    "db:push": "pnpm --filter @evoc/database db:push",
     "db:migrate": "pnpm --filter @evoc/database db:migrate",
     "db:seed": "pnpm --filter @evoc/database db:seed",
-    "db:studio": "pnpm --filter @evoc/database db:studio"
+    "db:studio": "pnpm --filter @evoc/database db:studio",
+    "test:brief": "pnpm --filter @evoc/api test:brief"
   },
   "devDependencies": {
     "prettier": "^3.3.3",

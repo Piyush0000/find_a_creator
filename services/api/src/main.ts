@@ -2,13 +2,16 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import path from 'path';
 import dotenv from 'dotenv';
+
+dotenv.config();
+dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+dotenv.config({ path: path.resolve(process.cwd(), '../../.env') });
 
 import { creatorsRouter } from './routes/creators.js';
 import { collabsRouter } from './routes/collabs.js';
 import { webhooksRouter } from './routes/webhooks.js';
-
-dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 4000;
