@@ -5,7 +5,13 @@ export const RegisterUserSchema = z.object({
   email: z.string().email(),
   phoneNumber: z.string().min(10).max(15),
   password: z.string().min(8, 'Password must be at least 8 characters'),
-  role: z.enum([UserRole.MERCHANT, UserRole.CREATOR])
+  role: z.enum([UserRole.MERCHANT, UserRole.CREATOR]),
+  brandName: z.string().optional(),
+  websiteUrl: z.string().url().optional().or(z.literal('')),
+  displayAlias: z.string().optional(),
+  category: z.string().optional(),
+  city: z.string().optional(),
+  bioSummary: z.string().optional()
 });
 
 export const LoginUserSchema = z.object({

@@ -3,18 +3,23 @@ import { prisma } from '@evoc/database';
 
 export const creatorsRouter = Router();
 
-// GET /api/creators (Directory Search with Masked Data)
+// GET /api/creators (Directory Search with Masked Data & Zero PII)
 creatorsRouter.get('/', async (req, res) => {
   try {
     const { category, city, search } = req.query;
 
     const where: any = {};
-    if (category) where.category = String(category);
-    if (city) where.city = String(city);
+    if (category) {
+      where.category = { equals: String(category), mode: 'insensitive' };
+    }
+    if (city) {
+      where.city = { equals: String(city), mode: 'insensitive' };
+    }
     if (search) {
       where.OR = [
         { displayAlias: { contains: String(search), mode: 'insensitive' } },
-        { bioSummary: { contains: String(search), mode: 'insensitive' } }
+        { bioSummary: { contains: String(search), mode: 'insensitive' } },
+        { category: { contains: String(search), mode: 'insensitive' } }
       ];
     }
 
@@ -35,7 +40,8 @@ creatorsRouter.get('/', async (req, res) => {
             videoUrl: true,
             thumbnailUrl: true,
             caption: true,
-            viewsCount: true
+            viewsCount: true,
+            aspectRatio: true
           }
         },
         reviews: {
@@ -44,11 +50,14 @@ creatorsRouter.get('/', async (req, res) => {
             reviewText: true
           }
         }
+        // STRICT PRIVACY POLICY ("Upwork Guard"):
+        // user relation (email, phoneNumber, passwordHash) and upiIdEncrypted are NEVER selected.
       }
     });
 
     res.json({ creators });
   } catch (error) {
+    console.error('Error fetching creator directory:', error);
     res.status(500).json({ error: 'Failed to fetch creator directory' });
   }
 });
@@ -66,9 +75,23 @@ creatorsRouter.get('/:id', async (req, res) => {
         city: true,
         contentStyles: true,
         bioSummary: true,
-        portfolioItems: true,
-        reviews: true
-        // NOTE: email, phoneNumber, upiId are STRICTLY EXCLUDED
+        portfolioItems: {
+          select: {
+            id: true,
+            videoUrl: true,
+            thumbnailUrl: true,
+            caption: true,
+            viewsCount: true,
+            aspectRatio: true
+          }
+        },
+        reviews: {
+          select: {
+            rating: true,
+            reviewText: true
+          }
+        }
+        // STRICT PRIVACY POLICY: zero PII returned
       }
     });
 
@@ -78,6 +101,7 @@ creatorsRouter.get('/:id', async (req, res) => {
 
     res.json({ creator });
   } catch (error) {
+    console.error('Error fetching creator profile:', error);
     res.status(500).json({ error: 'Failed to fetch creator profile' });
   }
 });

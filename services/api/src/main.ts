@@ -1,16 +1,19 @@
+import path from 'path';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
 
+dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+dotenv.config();
+
+import { authRouter } from './routes/auth.js';
 import { creatorsRouter } from './routes/creators.js';
 import { collabsRouter } from './routes/collabs.js';
 import { webhooksRouter } from './routes/webhooks.js';
 
-dotenv.config();
-
-const app = express();
+export const app = express();
 const PORT = process.env.PORT || 4000;
 
 app.use(helmet());
@@ -24,6 +27,7 @@ app.get('/healthz', (req, res) => {
 });
 
 // Register Domain Routes
+app.use('/api/auth', authRouter);
 app.use('/api/creators', creatorsRouter);
 app.use('/api/collabs', collabsRouter);
 app.use('/api/webhooks', webhooksRouter);
