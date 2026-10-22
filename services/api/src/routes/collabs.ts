@@ -191,12 +191,14 @@ collabsRouter.get(
 
       // SECURITY RULE: Private Draft Locking
       // Merchants CANNOT view draftVideoUrl until status is DRAFT_PENDING_MERCHANT or beyond
-      const isUnlockedForMerchant = [
-        CollabStatus.DRAFT_PENDING_MERCHANT,
-        CollabStatus.ASSET_DELIVERED,
-        CollabStatus.CAMPAIGN_ACTIVE,
-        CollabStatus.COMPLETED
-      ].includes(collab.status);
+      const isUnlockedForMerchant = (
+        [
+          CollabStatus.DRAFT_PENDING_MERCHANT,
+          CollabStatus.ASSET_DELIVERED,
+          CollabStatus.CAMPAIGN_ACTIVE,
+          CollabStatus.COMPLETED
+        ] as CollabStatus[]
+      ).includes(collab.status);
 
       const responseData: any = { ...collab };
 
