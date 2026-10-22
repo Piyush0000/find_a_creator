@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { prisma, CollabStatus, UserRole } from '@evoc/database';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { antiLeakScan } from '../middleware/antiLeak.js';
@@ -6,7 +7,26 @@ import { CreateCollabBriefSchema } from '@evoc/types';
 
 export const collabsRouter = Router();
 
-// POST /api/collabs (Merchant submits a brief with script)
+// ============================================================================
+// DTO Schemas for Day 2 Endpoints
+// ============================================================================
+const SubmitDraftSchema = z.object({
+  draftVideoUrl: z.string().url('A valid video URL is required')
+});
+
+const EvocReviewSchema = z.object({
+  approved: z.boolean(),
+  notes: z.string().optional()
+});
+
+const MerchantApprovalSchema = z.object({
+  approved: z.boolean(),
+  notes: z.string().optional()
+});
+
+// ============================================================================
+// 1. POST /api/collabs (Merchant submits a brief with script)
+// ============================================================================
 collabsRouter.post(
   '/',
   requireAuth,
@@ -59,19 +79,173 @@ collabsRouter.post(
   }
 );
 
-// PATCH /api/collabs/:id/evoc-review (Stage 1: EVOC Ops approves video draft)
+// ============================================================================
+// 2. POST /api/collabs/:id/draft (Creator uploads private draft video)
+// ============================================================================
+collabsRouter.post(
+  '/:id/draft',
+  requireAuth,
+  requireRole(UserRole.CREATOR),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { draftVideoUrl } = SubmitDraftSchema.parse(req.body);
+
+      // 1. Identify authenticated creator
+      const creator = await prisma.creatorProfile.findUnique({
+        where: { userId: req.user!.userId }
+      });
+
+      if (!creator) {
+        return res.status(404).json({ error: 'Creator profile not found' });
+      }
+
+      // 2. Fetch collaboration
+      const collab = await prisma.collaborationRequest.findUnique({
+        where: { id }
+      });
+
+      if (!collab) {
+        return res.status(404).json({ error: 'Collaboration request not found' });
+      }
+
+      // 3. IDOR Protection: Verify caller is the creator assigned to this brief
+      if (collab.creatorId !== creator.id) {
+        return res.status(403).json({ error: 'Forbidden: You are not assigned to this collaboration' });
+      }
+
+      // 4. State Machine Guard: Cannot upload if already delivered or declined
+      if (
+        collab.status === CollabStatus.ASSET_DELIVERED ||
+        collab.status === CollabStatus.CAMPAIGN_ACTIVE ||
+        collab.status === CollabStatus.COMPLETED ||
+        collab.status === CollabStatus.DECLINED
+      ) {
+        return res.status(400).json({ error: `Cannot upload draft: Collaboration is already ${collab.status}` });
+      }
+
+      // 5. Update draft and transition to DRAFT_PENDING_EVOC (100% PRIVATE)
+      const updated = await prisma.collaborationRequest.update({
+        where: { id },
+        data: {
+          draftVideoUrl,
+          status: CollabStatus.DRAFT_PENDING_EVOC
+        }
+      });
+
+      res.status(200).json({
+        message: 'Draft video uploaded successfully. Status: DRAFT_PENDING_EVOC (100% PRIVATE — Under EVOC Ops Quality Review).',
+        collabId: updated.id,
+        status: updated.status
+      });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message || 'Failed to submit draft' });
+    }
+  }
+);
+
+// ============================================================================
+// 3. GET /api/collabs/:id (View collaboration with Private Draft Locking & IDOR protection)
+// ============================================================================
+collabsRouter.get(
+  '/:id',
+  requireAuth,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const user = req.user!;
+
+      const collab = await prisma.collaborationRequest.findUnique({
+        where: { id },
+        include: {
+          merchant: {
+            select: { id: true, brandName: true, websiteUrl: true }
+          },
+          creator: {
+            select: { id: true, displayAlias: true, category: true, contentStyles: true }
+          }
+        }
+      });
+
+      if (!collab) {
+        return res.status(404).json({ error: 'Collaboration request not found' });
+      }
+
+      // Tenant Authorization Check
+      let isMerchantOwner = false;
+      let isCreatorOwner = false;
+
+      if (user.role === UserRole.MERCHANT) {
+        const merchant = await prisma.merchantProfile.findUnique({ where: { userId: user.userId } });
+        isMerchantOwner = !!merchant && merchant.id === collab.merchantId;
+      } else if (user.role === UserRole.CREATOR) {
+        const creator = await prisma.creatorProfile.findUnique({ where: { userId: user.userId } });
+        isCreatorOwner = !!creator && creator.id === collab.creatorId;
+      }
+
+      const isAdmin = user.role === UserRole.SUPER_ADMIN;
+
+      if (!isMerchantOwner && !isCreatorOwner && !isAdmin) {
+        return res.status(404).json({ error: 'Collaboration request not found' }); // 404 prevents ID enumeration
+      }
+
+      // SECURITY RULE: Private Draft Locking
+      // Merchants CANNOT view draftVideoUrl until status is DRAFT_PENDING_MERCHANT or beyond
+      const isUnlockedForMerchant = [
+        CollabStatus.DRAFT_PENDING_MERCHANT,
+        CollabStatus.ASSET_DELIVERED,
+        CollabStatus.CAMPAIGN_ACTIVE,
+        CollabStatus.COMPLETED
+      ].includes(collab.status);
+
+      const responseData: any = { ...collab };
+
+      if (isMerchantOwner && !isUnlockedForMerchant) {
+        responseData.draftVideoUrl = null;
+        responseData.draftStatusNotice = 'Creator submitted draft — Under EVOC Quality Review';
+      }
+
+      // SECURITY RULE: Internal Admin Notes Privacy
+      // Internal moderation notes are strictly confidential to Super Admins
+      if (!isAdmin) {
+        delete responseData.evocReviewNotes;
+      }
+
+      res.json({ collab: responseData });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Failed to fetch collaboration details' });
+    }
+  }
+);
+
+// ============================================================================
+// 4. PATCH /api/collabs/:id/evoc-review (Stage 1: EVOC Ops approves video draft)
+// ============================================================================
 collabsRouter.patch(
   '/:id/evoc-review',
   requireAuth,
   requireRole(UserRole.SUPER_ADMIN),
+  antiLeakScan(['notes']),
   async (req, res) => {
     try {
       const { id } = req.params;
-      const { approved, notes } = req.body;
+      const { approved, notes } = EvocReviewSchema.parse(req.body);
+
+      const collab = await prisma.collaborationRequest.findUnique({ where: { id } });
+      if (!collab) {
+        return res.status(404).json({ error: 'Collaboration request not found' });
+      }
+
+      // State Machine Guard: Collab must be in DRAFT_PENDING_EVOC
+      if (collab.status !== CollabStatus.DRAFT_PENDING_EVOC) {
+        return res.status(400).json({
+          error: `Invalid state transition: Cannot review collab in status '${collab.status}'. Must be DRAFT_PENDING_EVOC.`
+        });
+      }
 
       const nextStatus = approved
         ? CollabStatus.DRAFT_PENDING_MERCHANT // Unlocks privately for Merchant review
-        : CollabStatus.DRAFT_PENDING_EVOC;
+        : CollabStatus.DRAFT_PENDING_EVOC; // Revisions needed
 
       const updated = await prisma.collaborationRequest.update({
         where: { id },
@@ -81,38 +255,83 @@ collabsRouter.patch(
         }
       });
 
-      res.json({ message: 'EVOC Review completed', status: updated.status });
-    } catch (err) {
-      res.status(500).json({ error: 'Failed to update review status' });
+      res.json({
+        message: approved
+          ? 'EVOC Quality Review passed! Draft unlocked privately for Merchant review.'
+          : 'EVOC Review completed. Changes requested from creator.',
+        status: updated.status
+      });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message || 'Failed to update EVOC review status' });
     }
   }
 );
 
-// PATCH /api/collabs/:id/merchant-approval (Stage 2: Merchant gives final approval)
+// ============================================================================
+// 5. PATCH /api/collabs/:id/merchant-approval (Stage 2: Merchant gives final approval)
+// ============================================================================
 collabsRouter.patch(
   '/:id/merchant-approval',
   requireAuth,
   requireRole(UserRole.MERCHANT),
+  antiLeakScan(['notes']),
   async (req, res) => {
     try {
       const { id } = req.params;
-      const { approved, notes } = req.body;
+      const { approved, notes } = MerchantApprovalSchema.parse(req.body);
+
+      // 1. Identify authenticated merchant
+      const merchant = await prisma.merchantProfile.findUnique({
+        where: { userId: req.user!.userId }
+      });
+
+      if (!merchant) {
+        return res.status(404).json({ error: 'Merchant profile not found' });
+      }
+
+      // 2. Fetch collaboration
+      const collab = await prisma.collaborationRequest.findUnique({ where: { id } });
+      if (!collab) {
+        return res.status(404).json({ error: 'Collaboration request not found' });
+      }
+
+      // 3. IDOR Protection: Caller must own this collaboration
+      if (collab.merchantId !== merchant.id) {
+        return res.status(403).json({ error: 'Forbidden: You do not have permission to approve this collaboration' });
+      }
+
+      // 4. State Machine Guard: Collab must be in DRAFT_PENDING_MERCHANT
+      if (collab.status !== CollabStatus.DRAFT_PENDING_MERCHANT) {
+        return res.status(400).json({
+          error: `Invalid state transition: Cannot approve draft while in status '${collab.status}'. Must be cleared by EVOC Ops first (DRAFT_PENDING_MERCHANT).`
+        });
+      }
+
+      // 5. Update Status & Generate Asset Handoff
+      const nextStatus = approved ? CollabStatus.ASSET_DELIVERED : CollabStatus.DRAFT_PENDING_MERCHANT;
+      const approvedVideoUrl = approved ? (collab.draftVideoUrl || `https://assets.evoclabs.com/approved/${collab.id}.mp4`) : null;
 
       const updated = await prisma.collaborationRequest.update({
         where: { id },
         data: {
-          status: approved ? CollabStatus.ASSET_DELIVERED : CollabStatus.DRAFT_PENDING_MERCHANT,
-          merchantReviewNotes: notes
+          status: nextStatus,
+          merchantReviewNotes: notes,
+          ...(approved ? { approvedVideoUrl } : {})
         }
       });
 
+      const utmDestinationUrl = `https://${merchant.brandName.toLowerCase().replace(/[^a-z0-9]/g, '')}.com/p?utm_content=${updated.utmTrackingSlug}`;
+
       res.json({
-        message: 'Final approval recorded. Ad video asset unlocked for merchant campaigns.',
+        message: approved
+          ? 'Final approval recorded! Ad video asset delivered and UTM tracking link activated.'
+          : 'Merchant feedback recorded. Collab remains pending merchant review.',
         status: updated.status,
-        utmTrackingLink: `https://brand.com/p?utm_content=${updated.utmTrackingSlug}`
+        downloadableAssetUrl: updated.approvedVideoUrl,
+        utmTrackingLink: utmDestinationUrl
       });
-    } catch (err) {
-      res.status(500).json({ error: 'Failed to process merchant approval' });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message || 'Failed to process merchant approval' });
     }
   }
 );
