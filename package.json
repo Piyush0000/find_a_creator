@@ -20,7 +20,8 @@
     "db:migrate": "pnpm --filter @evoc/database db:migrate",
     "db:seed": "pnpm --filter @evoc/database db:seed",
     "db:studio": "pnpm --filter @evoc/database db:studio",
-    "test:brief": "pnpm --filter @evoc/api test:brief"
+    "test:brief": "pnpm --filter @evoc/api test:brief",
+    "test:day2": "pnpm --filter @evoc/api test:day2"
   },
   "devDependencies": {
     "prettier": "^3.3.3",
