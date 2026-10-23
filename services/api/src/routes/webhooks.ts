@@ -1,6 +1,7 @@
 import { Router } from 'express';
-import { prisma, PointsTransactionType, PointsStatus } from '@evoc/database';
+import { prisma } from '@evoc/database';
 import { OrderWebhookPayloadSchema } from '@evoc/types';
+import { PointsService } from '../services/points.service.js';
 
 export const webhooksRouter = Router();
 
@@ -23,43 +24,34 @@ webhooksRouter.post('/order-completed', async (req, res) => {
       return res.status(200).json({ received: true, note: 'No matching creator campaign found' });
     }
 
-    // Calculate Points (e.g. 10% of order value or custom points)
-    const pointsEarned = Math.round(Number(payload.orderTotal) * 0.1);
+    // Commission points directly set in the collaboration agreement
+    const pointsEarned = collab.commissionPointsPerSale;
 
-    // 1. Record Attribution
-    await prisma.orderAttribution.create({
-      data: {
-        collabId: collab.id,
-        orderId: payload.orderId,
-        orderTotal: payload.orderTotal,
-        pointsEarned
-      }
+    // Record order commission using PointsService (Atomic + Idempotent)
+    const result = await PointsService.recordOrderCommission({
+      collabId: collab.id,
+      creatorId: collab.creatorId,
+      orderId: payload.orderId,
+      orderTotal: Number(payload.orderTotal),
+      pointsEarned,
+      description: `Order #${payload.orderId} via Ad Campaign`
     });
 
-    // 2. Add to Points Ledger (LOCKED for 7-day return window)
-    await prisma.evocPointsLedger.create({
-      data: {
-        creatorId: collab.creatorId,
-        pointsDelta: pointsEarned,
-        transactionType: PointsTransactionType.PURCHASE_COMMISSION,
-        status: PointsStatus.LOCKED,
-        referenceId: payload.orderId,
-        description: `Order #${payload.orderId} from Ad Campaign`
-      }
-    });
-
-    // 3. Update Creator Points Balance
-    await prisma.creatorProfile.update({
-      where: { id: collab.creatorId },
-      data: { pointsBalance: { increment: pointsEarned } }
-    });
+    if (result.duplicate) {
+      return res.status(200).json({
+        received: true,
+        note: `Order #${payload.orderId} was already processed and credited`,
+        creatorId: collab.creatorId
+      });
+    }
 
     console.log(`⚡ Order Webhook: ${pointsEarned} EVOC Points credited to Creator ${collab.creator.displayAlias}`);
 
     res.status(200).json({
       success: true,
       pointsCredited: pointsEarned,
-      creatorId: collab.creatorId
+      creatorId: collab.creatorId,
+      newBalance: result.newBalance
     });
   } catch (error: any) {
     console.error('Webhook Error:', error);

@@ -1,5 +1,7 @@
 import { Router } from 'express';
-import { prisma } from '@evoc/database';
+import { prisma, UserRole } from '@evoc/database';
+import { requireAuth, requireRole } from '../middleware/auth.js';
+import { PointsService } from '../services/points.service.js';
 
 export const creatorsRouter = Router();
 
@@ -61,6 +63,69 @@ creatorsRouter.get('/', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch creator directory' });
   }
 });
+
+// GET /api/creators/me/points (Authenticated Creator Points Balance Breakdown)
+creatorsRouter.get(
+  '/me/points',
+  requireAuth,
+  requireRole(UserRole.CREATOR),
+  async (req, res) => {
+    try {
+      const creator = await prisma.creatorProfile.findUnique({
+        where: { userId: req.user!.userId }
+      });
+
+      if (!creator) {
+        return res.status(404).json({ error: 'Creator profile not found' });
+      }
+
+      const summary = await PointsService.getCreatorPointsSummary(creator.id);
+
+      res.json({
+        creatorId: creator.id,
+        displayAlias: creator.displayAlias,
+        ...summary
+      });
+    } catch (error) {
+      console.error('Error fetching creator points summary:', error);
+      res.status(500).json({ error: 'Failed to fetch points summary' });
+    }
+  }
+);
+
+// GET /api/creators/me/ledger (Authenticated Creator Ledger Transaction History)
+creatorsRouter.get(
+  '/me/ledger',
+  requireAuth,
+  requireRole(UserRole.CREATOR),
+  async (req, res) => {
+    try {
+      const creator = await prisma.creatorProfile.findUnique({
+        where: { userId: req.user!.userId }
+      });
+
+      if (!creator) {
+        return res.status(404).json({ error: 'Creator profile not found' });
+      }
+
+      const rawLimit = parseInt(String(req.query.limit), 10);
+      const limit = !Number.isNaN(rawLimit) ? Math.max(1, Math.min(100, rawLimit)) : 50;
+
+      const rawOffset = parseInt(String(req.query.offset), 10);
+      const offset = !Number.isNaN(rawOffset) ? Math.max(0, rawOffset) : 0;
+
+      const ledger = await PointsService.getCreatorLedger(creator.id, limit, offset);
+
+      res.json({
+        creatorId: creator.id,
+        ...ledger
+      });
+    } catch (error) {
+      console.error('Error fetching creator ledger:', error);
+      res.status(500).json({ error: 'Failed to fetch points ledger' });
+    }
+  }
+);
 
 // GET /api/creators/:id (Single Masked Creator Profile)
 creatorsRouter.get('/:id', async (req, res) => {
