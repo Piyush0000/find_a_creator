@@ -10,6 +10,13 @@ dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 dotenv.config({ path: path.resolve(process.cwd(), '../../.env') });
 dotenv.config();
 
+// Strict startup security check: Do not start if JWT_SECRET is not configured
+if (!process.env.JWT_SECRET) {
+  console.error('❌ FATAL: JWT_SECRET environment variable is missing.');
+  console.error('Refusing to start API server with insecure authentication configuration.');
+  process.exit(1);
+}
+
 import { authRouter } from './routes/auth.js';
 import { creatorsRouter } from './routes/creators.js';
 import { collabsRouter } from './routes/collabs.js';

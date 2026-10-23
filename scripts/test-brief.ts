@@ -65,12 +65,17 @@ async function run() {
     commissionPointsPerSale: 130
   };
 
-  console.log('📋 SAMPLE BRIEF PAYLOAD:');
+  console.log('📋 SAMPLE POSTMAN / CURL TEST PAYLOAD:');
   console.log(JSON.stringify(briefPayload, null, 2));
 
-  console.log('\n🚀 SENDING TEST BRIEF TO http://localhost:4000/api/collabs ...');
+  console.log('\n🚀 READY-TO-RUN CURL COMMAND:');
+  console.log(`curl -X POST http://localhost:4000/api/collabs \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer ${token}" \\
+  -d '${JSON.stringify(briefPayload)}'`);
+  console.log('======================================================\n');
 
-  // 4. Send test request to running API server
+  // 4. Attempt to test against running server if online
   try {
     const res = await fetch('http://localhost:4000/api/collabs', {
       method: 'POST',
@@ -83,16 +88,14 @@ async function run() {
 
     if (res.ok) {
       const data = await res.json();
-      console.log('\n🎉 SUCCESS! Brief created in Supabase database:');
-      console.log(JSON.stringify(data, null, 2));
-      console.log('\nDay 1 Brief Creation Goal is 100% COMPLETE! 🚀');
+      console.log('✅ TEST REQUEST SUCCESSFUL! Response from server:');
+      console.log(data);
     } else {
       const errData = await res.text();
-      console.log(`\n❌ Server returned status ${res.status}: ${errData}`);
+      console.log(`ℹ️ Server returned status ${res.status}: ${errData}`);
     }
-  } catch (err: any) {
-    console.log(`\n⚠️ Could not reach server at http://localhost:4000: ${err.message}`);
-    console.log('Ensure `npx pnpm --filter @evoc/api dev` is running in Terminal 1.');
+  } catch {
+    console.log('ℹ️ Server is not running on http://localhost:4000 yet. Start it with `pnpm dev` to test.');
   }
 
   await prisma.$disconnect();

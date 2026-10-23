@@ -1,12 +1,22 @@
 import { Router } from 'express';
-import { prisma, PointsTransactionType, PointsStatus } from '@evoc/database';
+import { prisma } from '@evoc/database';
 import { OrderWebhookPayloadSchema } from '@evoc/types';
+import { PointsService } from '../services/points.service.js';
 
 export const webhooksRouter = Router();
 
 // POST /api/webhooks/order-completed (EVOC Checkout Webhook)
 webhooksRouter.post('/order-completed', async (req, res) => {
   try {
+    // Recommendation 1: Webhook Secret Authentication Gate
+    const configuredSecret = process.env.CHECKOUT_WEBHOOK_SECRET;
+    if (configuredSecret) {
+      const incomingSecret = req.headers['x-webhook-secret'];
+      if (!incomingSecret || incomingSecret !== configuredSecret) {
+        return res.status(401).json({ error: 'Unauthorized: Invalid or missing webhook signature' });
+      }
+    }
+
     const payload = OrderWebhookPayloadSchema.parse(req.body);
 
     if (!payload.utmCreatorId) {
@@ -23,43 +33,36 @@ webhooksRouter.post('/order-completed', async (req, res) => {
       return res.status(200).json({ received: true, note: 'No matching creator campaign found' });
     }
 
-    // Calculate Points (e.g. 10% of order value or custom points)
+    // Calculate Points (10% commission on order value)
     const pointsEarned = Math.round(Number(payload.orderTotal) * 0.1);
 
-    // 1. Record Attribution
-    await prisma.orderAttribution.create({
-      data: {
-        collabId: collab.id,
-        orderId: payload.orderId,
-        orderTotal: payload.orderTotal,
-        pointsEarned
-      }
+    // Call Sai's PointsService to atomically & idempotently record order attribution,
+    // lock points in ledger, and increment creator balance
+    const result = await PointsService.recordOrderCommission({
+      collabId: collab.id,
+      creatorId: collab.creatorId,
+      orderId: payload.orderId,
+      orderTotal: Number(payload.orderTotal),
+      pointsEarned,
+      description: `Commission for Order #${payload.orderId} via Ad Campaign`
     });
 
-    // 2. Add to Points Ledger (LOCKED for 7-day return window)
-    await prisma.evocPointsLedger.create({
-      data: {
-        creatorId: collab.creatorId,
-        pointsDelta: pointsEarned,
-        transactionType: PointsTransactionType.PURCHASE_COMMISSION,
-        status: PointsStatus.LOCKED,
-        referenceId: payload.orderId,
-        description: `Order #${payload.orderId} from Ad Campaign`
-      }
-    });
-
-    // 3. Update Creator Points Balance
-    await prisma.creatorProfile.update({
-      where: { id: collab.creatorId },
-      data: { pointsBalance: { increment: pointsEarned } }
-    });
+    if (result.duplicate) {
+      console.log(`⚠️ Order Webhook duplicate ignored: Order #${payload.orderId} already credited`);
+      return res.status(200).json({
+        received: true,
+        duplicate: true,
+        note: `Order #${payload.orderId} was already attributed`
+      });
+    }
 
     console.log(`⚡ Order Webhook: ${pointsEarned} EVOC Points credited to Creator ${collab.creator.displayAlias}`);
 
     res.status(200).json({
       success: true,
       pointsCredited: pointsEarned,
-      creatorId: collab.creatorId
+      creatorId: collab.creatorId,
+      newBalance: result.newBalance
     });
   } catch (error: any) {
     console.error('Webhook Error:', error);

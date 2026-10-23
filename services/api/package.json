@@ -5,7 +5,9 @@
   "main": "./src/main.ts",
   "scripts": {
     "dev": "tsx watch src/main.ts",
-    "test:brief": "tsx src/test-brief.ts",
+    "test:brief": "tsx --env-file=../../.env ../../scripts/test-brief.ts",
+    "test:day2": "tsx --env-file=../../.env ../../scripts/test-day2.ts",
+    "test:day3": "tsx --env-file=../../.env ../../scripts/test-day3.ts",
     "build": "tsc",
     "start": "node dist/main.js"
   },
