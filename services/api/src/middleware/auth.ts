@@ -22,9 +22,17 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
     return res.status(401).json({ error: 'Unauthorized: Missing or invalid token' });
   }
 
+  const jwtSecret = process.env.JWT_SECRET;
+  if (!jwtSecret) {
+    console.error('Server configuration error: JWT_SECRET environment variable is missing');
+    return res.status(500).json({
+      error: 'Server configuration error: JWT_SECRET environment variable is missing'
+    });
+  }
+
   const token = authHeader.split(' ')[1];
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'super_secret_jwt_key_evoc_2026') as AuthUser;
+    const decoded = jwt.verify(token, jwtSecret) as AuthUser;
     req.user = decoded;
     next();
   } catch {
