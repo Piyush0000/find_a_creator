@@ -8,7 +8,7 @@ import { CreateCollabBriefSchema } from '@evoc/types';
 export const collabsRouter = Router();
 
 // ============================================================================
-// DTO Schemas for Collab Lifecycle
+// DTO Schemas for Day 2 Endpoints
 // ============================================================================
 const SubmitDraftSchema = z.object({
   draftVideoUrl: z.string().url('A valid video URL is required')
@@ -114,7 +114,7 @@ collabsRouter.post(
         return res.status(403).json({ error: 'Forbidden: You are not assigned to this collaboration' });
       }
 
-      // 4. State Machine Guard: Only allow upload from valid draft states
+      // 4. State Machine Guard: Only allow upload from valid states
       const allowedUploadStates = (
         [
           CollabStatus.BRIEF_SUBMITTED,
@@ -194,7 +194,6 @@ collabsRouter.get(
       }
 
       // SECURITY RULE: Private Draft Locking
-      // Merchants CANNOT view draftVideoUrl until status is DRAFT_PENDING_MERCHANT or beyond
       const isUnlockedForMerchant = (
         [
           CollabStatus.DRAFT_PENDING_MERCHANT,

@@ -6,7 +6,11 @@ dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 dotenv.config();
 
 import jwt from 'jsonwebtoken';
+<<<<<<< HEAD
 import { prisma, UserRole, CollabStatus } from '@evoc/database';
+=======
+import { prisma, UserRole } from '@evoc/database';
+>>>>>>> origin/main
 
 async function run() {
   console.log('🚀 ======================================================');
@@ -122,6 +126,7 @@ async function run() {
     process.exit(1);
   }
 
+<<<<<<< HEAD
   // 7. Security Check 3: EVOC Rejection -> DRAFT_REVISION_REQUESTED test
   console.log('🔄 STEP 2A: EVOC Ops rejects draft to test DRAFT_REVISION_REQUESTED state...');
   const rejectRes = await fetch(`http://localhost:4000/api/collabs/${collabId}/evoc-review`, {
@@ -159,6 +164,10 @@ async function run() {
 
   // 8. Step 2C: EVOC Ops reviews and approves the revised draft
   console.log('🔍 STEP 2C: EVOC Ops reviews and approves draft (PATCH /api/collabs/:id/evoc-review)...');
+=======
+  // 7. Step 2: EVOC Ops Stage 1 Quality Review (PATCH /api/collabs/:id/evoc-review)
+  console.log('🔍 STEP 2: EVOC Ops reviews and approves draft (PATCH /api/collabs/:id/evoc-review)...');
+>>>>>>> origin/main
   const evocReviewRes = await fetch(`http://localhost:4000/api/collabs/${collabId}/evoc-review`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
@@ -171,7 +180,11 @@ async function run() {
   console.log(`✅ ${evocReviewData.message}`);
   console.log(`• Collab Status: ${evocReviewData.status}\n`);
 
+<<<<<<< HEAD
   // 9. Merchant Verification: Draft is now unlocked
+=======
+  // 8. Merchant Verification: Draft is now unlocked
+>>>>>>> origin/main
   console.log('🔓 VERIFICATION: Merchant views collab after EVOC approval...');
   const unlockedRes = await fetch(`http://localhost:4000/api/collabs/${collabId}`, {
     headers: { Authorization: `Bearer ${merchantToken}` }
@@ -180,7 +193,11 @@ async function run() {
   console.log(`• draftVideoUrl now visible to Merchant: ${unlockedData.collab.draftVideoUrl}`);
   console.log('✅ Unlocked privately for Merchant in portal!\n');
 
+<<<<<<< HEAD
   // 10. Step 3: Merchant Stage 2 Approval & Asset Handoff (PATCH /api/collabs/:id/merchant-approval)
+=======
+  // 9. Step 3: Merchant Stage 2 Approval & Asset Handoff (PATCH /api/collabs/:id/merchant-approval)
+>>>>>>> origin/main
   console.log('🎉 STEP 3: Merchant gives final approval (PATCH /api/collabs/:id/merchant-approval)...');
   const finalApproveRes = await fetch(`http://localhost:4000/api/collabs/${collabId}/merchant-approval`, {
     method: 'PATCH',
