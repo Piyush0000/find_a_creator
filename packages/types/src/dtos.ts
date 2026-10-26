@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { UserRole } from './enums.js';
+import { UserRole } from './enums';
 
 export const RegisterUserSchema = z.object({
   email: z.string().email(),

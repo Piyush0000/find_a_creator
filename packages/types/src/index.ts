@@ -1,3 +1,3 @@
-export * from './enums.js';
-export * from './security.js';
-export * from './dtos.js';
+export * from './enums';
+export * from './security';
+export * from './dtos';
