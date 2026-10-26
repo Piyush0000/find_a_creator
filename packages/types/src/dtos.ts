@@ -40,3 +40,24 @@ export const OrderWebhookPayloadSchema = z.object({
   couponCode: z.string().optional(),
   createdAt: z.string()
 });
+
+export const UPI_VPA_REGEX = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9]+$/;
+
+export const CreatePayoutRequestSchema = z.object({
+  upiVpa: z
+    .string()
+    .regex(UPI_VPA_REGEX, 'Invalid UPI VPA format (e.g. name@okhdfcbank)'),
+  pointsToRedeem: z
+    .number()
+    .int('Points must be a whole number')
+    .min(500, 'Minimum payout is 500 points')
+});
+
+export const AdminClearPayoutSchema = z.object({
+  utrNumber: z.string().min(6, 'UTR number is required'),
+  adminNotes: z.string().optional()
+});
+
+export const AdminRejectPayoutSchema = z.object({
+  adminNotes: z.string().min(5, 'Rejection reason is required')
+});

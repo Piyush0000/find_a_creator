@@ -42,3 +42,9 @@ export enum PointsStatus {
   SETTLED = 'SETTLED',   // Ready for withdrawal
   CANCELLED = 'CANCELLED' // Customer returned/refunded order
 }
+
+export enum PayoutStatus {
+  PENDING_UTR = 'PENDING_UTR', // Waiting for bank UTR confirmation
+  CLEARED = 'CLEARED',         // Payment confirmed, UTR recorded
+  REJECTED = 'REJECTED'        // Admin rejected payout request
+}
