@@ -61,3 +61,6 @@ export const AdminClearPayoutSchema = z.object({
 export const AdminRejectPayoutSchema = z.object({
   adminNotes: z.string().min(5, 'Rejection reason is required')
 });
+
+// Export both names to prevent any import breakage
+export const AdminRejectSchema = AdminRejectPayoutSchema;
