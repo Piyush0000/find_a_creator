@@ -1,15 +1,15 @@
 import path from 'path';
 import dotenv from 'dotenv';
 
-dotenv.config({ path: path.resolve(__dirname, '../.env') });
-dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 dotenv.config();
+dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+dotenv.config({ path: path.resolve(process.cwd(), '../../.env') });
 
 import jwt from 'jsonwebtoken';
 import { prisma } from '@evoc/database';
 
 async function run() {
-  console.log('🔍 Locating seeded Merchant and Creator in the database...');
+  console.log('🔍 Locating seeded Merchant and Creator in Supabase...');
 
   // 1. Fetch sample merchant
   const merchantUser = await prisma.user.findUnique({
@@ -18,7 +18,7 @@ async function run() {
   });
 
   if (!merchantUser || !merchantUser.merchantProfile) {
-    console.error('❌ Merchant user not found. Did you run `pnpm db:seed`?');
+    console.error('❌ Merchant user not found. Did you run `npx pnpm db:seed`?');
     process.exit(1);
   }
 
@@ -29,7 +29,7 @@ async function run() {
   });
 
   if (!creatorUser || !creatorUser.creatorProfile) {
-    console.error('❌ Creator user not found. Did you run `pnpm db:seed`?');
+    console.error('❌ Creator user not found. Did you run `npx pnpm db:seed`?');
     process.exit(1);
   }
 

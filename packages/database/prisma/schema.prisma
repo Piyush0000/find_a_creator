@@ -32,6 +32,7 @@ enum CollabStatus {
   CREATOR_ACCEPTED        // Creator agreed to shoot ad
   SAMPLE_DISPATCHED      // Sample in transit via EVOC Logistics
   DRAFT_PENDING_EVOC      // 100% PRIVATE: Visible only to EVOC Ops
+  DRAFT_REVISION_REQUESTED // EVOC rejected draft — Creator must fix & re-upload
   DRAFT_PENDING_MERCHANT  // STILL PRIVATE: Unlocked for Merchant review
   ASSET_DELIVERED          // Merchant approved, received ad asset
   CAMPAIGN_ACTIVE          // Ad running with UTM tracking
@@ -49,6 +50,12 @@ enum PointsStatus {
   LOCKED
   SETTLED
   CANCELLED
+}
+
+enum PayoutStatus {
+  PENDING_UTR   // Waiting for bank UTR confirmation
+  CLEARED       // Payment confirmed, UTR recorded
+  REJECTED      // Admin rejected payout request
 }
 
 model User {
@@ -103,6 +110,7 @@ model CreatorProfile {
   reviews           CreatorReview[]
   collabs           CollaborationRequest[]
   pointsLedger      EvocPointsLedger[]
+  payoutRequests    PayoutRequest[]
 
   @@map("creator_profiles")
 }
@@ -150,8 +158,14 @@ model CollaborationRequest {
   commissionPointsPerSale Int          @default(100)
   status                  CollabStatus @default(BRIEF_SUBMITTED)
   
+  // Logistics & Sample Tracking
+  courierName             String?      // e.g. "BlueDart", "Delhivery"
+  trackingNumber          String?      // e.g. "BD12345678IN"
+  trackingUrl             String?      // Tracking link for creator
+  sampleDispatchedAt      DateTime?
+  
   // Deliverable Tracking
-  draftVideoUrl           String?      // Private S3 URL
+  draftVideoUrl           String?      // Private Cloudflare R2 / S3 URL
   evocReviewNotes         String?      // Internal notes from EVOC Ops
   merchantReviewNotes     String?      // Feedback from merchant
   approvedVideoUrl        String?      // Final high-res asset for merchant ads
@@ -194,4 +208,20 @@ model OrderAttribution {
   collab       CollaborationRequest @relation(fields: [collabId], references: [id], onDelete: Cascade)
 
   @@map("order_attributions")
+}
+
+model PayoutRequest {
+  id              String       @id @default(uuid()) @db.Uuid
+  creatorId       String       @db.Uuid
+  pointsRedeemed  Int          // Points deducted for this payout
+  upiVpa          String       // Masked UPI VPA stored for audit (e.g. roh***@okhdfcbank)
+  status          PayoutStatus @default(PENDING_UTR)
+  utrNumber       String?      // Bank UTR once cleared
+  adminNotes      String?      // Notes from EVOC Finance team
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  creator         CreatorProfile @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@map("payout_requests")
 }

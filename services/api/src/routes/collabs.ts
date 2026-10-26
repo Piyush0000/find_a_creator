@@ -4,11 +4,16 @@ import { prisma, CollabStatus, UserRole } from '@evoc/database';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { antiLeakScan } from '../middleware/antiLeak.js';
 import { CreateCollabBriefSchema } from '@evoc/types';
+import {
+  dispatchBriefSubmitted,
+  dispatchDraftUploaded,
+  dispatchAssetApproved
+} from '../queues/dispatcher.js';
 
 export const collabsRouter = Router();
 
 // ============================================================================
-// DTO Schemas for Day 2 Endpoints
+// DTO Schemas for Collab Lifecycle
 // ============================================================================
 const SubmitDraftSchema = z.object({
   draftVideoUrl: z.string().url('A valid video URL is required')
@@ -22,6 +27,12 @@ const EvocReviewSchema = z.object({
 const MerchantApprovalSchema = z.object({
   approved: z.boolean(),
   notes: z.string().optional()
+});
+
+const SampleDispatchedSchema = z.object({
+  courierName: z.string().min(2, 'Courier name is required (e.g., BlueDart, Delhivery)'),
+  trackingNumber: z.string().min(3, 'Tracking number is required'),
+  trackingUrl: z.string().url().optional()
 });
 
 // ============================================================================
@@ -68,6 +79,14 @@ collabsRouter.post(
         }
       });
 
+      // Dispatch async notifications (fire-and-forget — non-blocking)
+      dispatchBriefSubmitted({
+        collabId: collab.id,
+        merchantId: merchant.id,
+        creatorId: parsed.creatorId,
+        productName: parsed.productName
+      }).catch((err) => console.error('[Queue] dispatchBriefSubmitted failed:', err.message));
+
       res.status(201).json({
         message: 'Brief submitted! Dual-dispatched to Creator queue and Super Admin moderation.',
         collabId: collab.id,
@@ -80,7 +99,253 @@ collabsRouter.post(
 );
 
 // ============================================================================
-// 2. POST /api/collabs/:id/draft (Creator uploads private draft video)
+// 2. GET /api/collabs/merchant (Sprint Day 1: Merchant Collabs Feed with Stage 1 Video Masking)
+// ============================================================================
+collabsRouter.get(
+  '/merchant',
+  requireAuth,
+  requireRole(UserRole.MERCHANT),
+  async (req, res) => {
+    try {
+      const merchant = await prisma.merchantProfile.findUnique({
+        where: { userId: req.user!.userId }
+      });
+
+      if (!merchant) {
+        return res.status(404).json({ error: 'Merchant profile not found' });
+      }
+
+      // Query merchant collabs
+      const collabs = await prisma.collaborationRequest.findMany({
+        where: { merchantId: merchant.id },
+        include: {
+          creator: {
+            select: {
+              id: true,
+              displayAlias: true,
+              category: true,
+              contentStyles: true
+            }
+          }
+        },
+        orderBy: { createdAt: 'desc' }
+      });
+
+      // Allowed unmasked statuses for Merchant
+      const unlockedStatuses = (
+        [
+          CollabStatus.DRAFT_PENDING_MERCHANT,
+          CollabStatus.ASSET_DELIVERED,
+          CollabStatus.CAMPAIGN_ACTIVE,
+          CollabStatus.COMPLETED
+        ] as CollabStatus[]
+      );
+
+      // Mask sensitive draft videos and attach asset handoffs where eligible
+      const sanitizedCollabs = collabs.map((collab) => {
+        const isUnlocked = unlockedStatuses.includes(collab.status);
+        const data: any = { ...collab };
+
+        // Internal EVOC admin moderation notes are strictly confidential
+        delete data.evocReviewNotes;
+
+        if (!isUnlocked) {
+          data.draftVideoUrl = null;
+          data.draftStatusNotice = 'Creator submitted draft — Under EVOC Quality Review';
+        }
+
+        // Attach pre-formatted Meta Ads UTM campaign link for delivered assets
+        if (collab.status === CollabStatus.ASSET_DELIVERED || collab.status === CollabStatus.CAMPAIGN_ACTIVE || collab.status === CollabStatus.COMPLETED) {
+          const brandDomain = merchant.brandName.toLowerCase().replace(/[^a-z0-9]/g, '');
+          data.metaAdsUtmLink = `https://${brandDomain}.com/p?utm_content=${collab.utmTrackingSlug}&utm_source=meta&utm_medium=ugc_ad`;
+        }
+
+        return data;
+      });
+
+      res.json({
+        success: true,
+        count: sanitizedCollabs.length,
+        collabs: sanitizedCollabs
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Failed to fetch merchant collaborations feed' });
+    }
+  }
+);
+
+// ============================================================================
+// 3. PATCH /api/collabs/:id/accept (Sprint Day 1: Creator accepts brief)
+// ============================================================================
+collabsRouter.patch(
+  '/:id/accept',
+  requireAuth,
+  requireRole(UserRole.CREATOR),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const creator = await prisma.creatorProfile.findUnique({
+        where: { userId: req.user!.userId }
+      });
+
+      if (!creator) {
+        return res.status(404).json({ error: 'Creator profile not found' });
+      }
+
+      const collab = await prisma.collaborationRequest.findUnique({ where: { id } });
+      if (!collab) {
+        return res.status(404).json({ error: 'Collaboration request not found' });
+      }
+
+      // IDOR Protection: Verify caller is assigned to this brief
+      if (collab.creatorId !== creator.id) {
+        return res.status(403).json({ error: 'Forbidden: You are not assigned to this collaboration' });
+      }
+
+      // State machine guard: Can only accept from BRIEF_SUBMITTED or EVOC_APPROVED
+      if (collab.status !== CollabStatus.BRIEF_SUBMITTED && collab.status !== CollabStatus.EVOC_APPROVED) {
+        return res.status(400).json({
+          error: `Cannot accept brief in status '${collab.status}'. Must be BRIEF_SUBMITTED.`
+        });
+      }
+
+      const updated = await prisma.collaborationRequest.update({
+        where: { id },
+        data: { status: CollabStatus.CREATOR_ACCEPTED }
+      });
+
+      res.json({
+        success: true,
+        message: 'Collaboration brief accepted! Waiting for merchant/EVOC logistics sample dispatch.',
+        status: updated.status,
+        collabId: updated.id
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Failed to accept collaboration brief' });
+    }
+  }
+);
+
+// ============================================================================
+// 4. PATCH /api/collabs/:id/decline (Sprint Day 1: Creator declines brief)
+// ============================================================================
+collabsRouter.patch(
+  '/:id/decline',
+  requireAuth,
+  requireRole(UserRole.CREATOR),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const creator = await prisma.creatorProfile.findUnique({
+        where: { userId: req.user!.userId }
+      });
+
+      if (!creator) {
+        return res.status(404).json({ error: 'Creator profile not found' });
+      }
+
+      const collab = await prisma.collaborationRequest.findUnique({ where: { id } });
+      if (!collab) {
+        return res.status(404).json({ error: 'Collaboration request not found' });
+      }
+
+      // IDOR Protection
+      if (collab.creatorId !== creator.id) {
+        return res.status(403).json({ error: 'Forbidden: You are not assigned to this collaboration' });
+      }
+
+      // State machine guard: Cannot decline if already shooting/delivered
+      if (
+        collab.status === CollabStatus.ASSET_DELIVERED ||
+        collab.status === CollabStatus.CAMPAIGN_ACTIVE ||
+        collab.status === CollabStatus.COMPLETED
+      ) {
+        return res.status(400).json({ error: `Cannot decline collaboration in status '${collab.status}'.` });
+      }
+
+      const updated = await prisma.collaborationRequest.update({
+        where: { id },
+        data: { status: CollabStatus.DECLINED }
+      });
+
+      res.json({
+        success: true,
+        message: 'Collaboration declined.',
+        status: updated.status,
+        collabId: updated.id
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Failed to decline collaboration' });
+    }
+  }
+);
+
+// ============================================================================
+// 5. PATCH /api/collabs/:id/sample-dispatched (Sprint Day 1: Logs courier & tracking)
+// ============================================================================
+collabsRouter.patch(
+  '/:id/sample-dispatched',
+  requireAuth,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const user = req.user!;
+      const { courierName, trackingNumber, trackingUrl } = SampleDispatchedSchema.parse(req.body);
+
+      const collab = await prisma.collaborationRequest.findUnique({ where: { id } });
+      if (!collab) {
+        return res.status(404).json({ error: 'Collaboration request not found' });
+      }
+
+      // Authorization Check: Must be Merchant Owner or Super Admin
+      let isAuthorized = user.role === UserRole.SUPER_ADMIN;
+      if (user.role === UserRole.MERCHANT) {
+        const merchant = await prisma.merchantProfile.findUnique({ where: { userId: user.userId } });
+        if (merchant && merchant.id === collab.merchantId) {
+          isAuthorized = true;
+        }
+      }
+
+      if (!isAuthorized) {
+        return res.status(403).json({ error: 'Forbidden: Only the merchant or EVOC Ops can dispatch samples' });
+      }
+
+      // State Machine Guard: Collab must be in CREATOR_ACCEPTED or BRIEF_SUBMITTED
+      if (collab.status !== CollabStatus.CREATOR_ACCEPTED && collab.status !== CollabStatus.BRIEF_SUBMITTED) {
+        return res.status(400).json({
+          error: `Cannot dispatch sample while collab is in status '${collab.status}'. Creator must accept first.`
+        });
+      }
+
+      const updated = await prisma.collaborationRequest.update({
+        where: { id },
+        data: {
+          status: CollabStatus.SAMPLE_DISPATCHED,
+          courierName,
+          trackingNumber,
+          trackingUrl: trackingUrl || null,
+          sampleDispatchedAt: new Date()
+        }
+      });
+
+      res.json({
+        success: true,
+        message: 'Product sample dispatched! Tracking details logged for creator.',
+        status: updated.status,
+        courierName: updated.courierName,
+        trackingNumber: updated.trackingNumber,
+        trackingUrl: updated.trackingUrl
+      });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message || 'Failed to record sample dispatch' });
+    }
+  }
+);
+
+// ============================================================================
+// 6. POST /api/collabs/:id/draft (Creator uploads private draft video)
 // ============================================================================
 collabsRouter.post(
   '/:id/draft',
@@ -114,14 +379,20 @@ collabsRouter.post(
         return res.status(403).json({ error: 'Forbidden: You are not assigned to this collaboration' });
       }
 
-      // 4. State Machine Guard: Cannot upload if already delivered or declined
-      if (
-        collab.status === CollabStatus.ASSET_DELIVERED ||
-        collab.status === CollabStatus.CAMPAIGN_ACTIVE ||
-        collab.status === CollabStatus.COMPLETED ||
-        collab.status === CollabStatus.DECLINED
-      ) {
-        return res.status(400).json({ error: `Cannot upload draft: Collaboration is already ${collab.status}` });
+      // 4. State Machine Guard: Only allow upload from valid draft states
+      const allowedUploadStates = (
+        [
+          CollabStatus.BRIEF_SUBMITTED,
+          CollabStatus.CREATOR_ACCEPTED,
+          CollabStatus.SAMPLE_DISPATCHED,
+          CollabStatus.DRAFT_REVISION_REQUESTED
+        ] as CollabStatus[]
+      );
+
+      if (!allowedUploadStates.includes(collab.status)) {
+        return res.status(400).json({
+          error: `Cannot upload draft: Collaboration is in status '${collab.status}'. Draft upload is only allowed when status is BRIEF_SUBMITTED, CREATOR_ACCEPTED, SAMPLE_DISPATCHED, or DRAFT_REVISION_REQUESTED.`
+        });
       }
 
       // 5. Update draft and transition to DRAFT_PENDING_EVOC (100% PRIVATE)
@@ -132,6 +403,13 @@ collabsRouter.post(
           status: CollabStatus.DRAFT_PENDING_EVOC
         }
       });
+
+      // Dispatch async notification to EVOC Ops (fire-and-forget)
+      dispatchDraftUploaded({
+        collabId: updated.id,
+        creatorId: creator.id,
+        draftVideoUrl
+      }).catch((err) => console.error('[Queue] dispatchDraftUploaded failed:', err.message));
 
       res.status(200).json({
         message: 'Draft video uploaded successfully. Status: DRAFT_PENDING_EVOC (100% PRIVATE — Under EVOC Ops Quality Review).',
@@ -145,7 +423,7 @@ collabsRouter.post(
 );
 
 // ============================================================================
-// 2b. GET /api/collabs/creator (Creator's Deals Feed for Kanban Board)
+// 2b. GET /api/collabs/creator (Creator Deals Feed for Kanban Board)
 // ============================================================================
 collabsRouter.get(
   '/creator',
@@ -196,7 +474,36 @@ collabsRouter.get(
 );
 
 // ============================================================================
-// 3. GET /api/collabs/:id (View collaboration with Private Draft Locking & IDOR protection)
+// 2c. GET /api/collabs/admin (Admin Moderation Queue)
+// ============================================================================
+collabsRouter.get(
+  '/admin',
+  requireAuth,
+  requireRole(UserRole.SUPER_ADMIN),
+  async (req, res) => {
+    try {
+      const collabs = await prisma.collaborationRequest.findMany({
+        include: {
+          merchant: {
+            select: { id: true, brandName: true, websiteUrl: true }
+          },
+          creator: {
+            select: { id: true, displayAlias: true, category: true }
+          }
+        },
+        orderBy: { createdAt: 'desc' }
+      });
+
+      res.json({ collabs });
+    } catch (err: any) {
+      console.error('Failed to fetch admin moderation collabs:', err);
+      res.status(500).json({ error: 'Failed to fetch admin moderation queue' });
+    }
+  }
+);
+
+// ============================================================================
+// 7. GET /api/collabs/:id (View collaboration with Private Draft Locking & IDOR protection)
 // ============================================================================
 collabsRouter.get(
   '/:id',
@@ -241,7 +548,6 @@ collabsRouter.get(
       }
 
       // SECURITY RULE: Private Draft Locking
-      // Merchants CANNOT view draftVideoUrl until status is DRAFT_PENDING_MERCHANT or beyond
       const isUnlockedForMerchant = (
         [
           CollabStatus.DRAFT_PENDING_MERCHANT,
@@ -259,9 +565,14 @@ collabsRouter.get(
       }
 
       // SECURITY RULE: Internal Admin Notes Privacy
-      // Internal moderation notes are strictly confidential to Super Admins
       if (!isAdmin) {
         delete responseData.evocReviewNotes;
+      }
+
+      // Attach Asset Handoff details for delivered assets
+      if (collab.status === CollabStatus.ASSET_DELIVERED || collab.status === CollabStatus.CAMPAIGN_ACTIVE || collab.status === CollabStatus.COMPLETED) {
+        const brandDomain = collab.merchant.brandName.toLowerCase().replace(/[^a-z0-9]/g, '');
+        responseData.metaAdsUtmLink = `https://${brandDomain}.com/p?utm_content=${collab.utmTrackingSlug}&utm_source=meta&utm_medium=ugc_ad`;
       }
 
       res.json({ collab: responseData });
@@ -272,7 +583,7 @@ collabsRouter.get(
 );
 
 // ============================================================================
-// 4. PATCH /api/collabs/:id/evoc-review (Stage 1: EVOC Ops approves video draft)
+// 8. PATCH /api/collabs/:id/evoc-review (Stage 1: EVOC Ops approves video draft)
 // ============================================================================
 collabsRouter.patch(
   '/:id/evoc-review',
@@ -297,8 +608,8 @@ collabsRouter.patch(
       }
 
       const nextStatus = approved
-        ? CollabStatus.DRAFT_PENDING_MERCHANT // Unlocks privately for Merchant review
-        : CollabStatus.DRAFT_PENDING_EVOC; // Revisions needed
+        ? CollabStatus.DRAFT_PENDING_MERCHANT          // Unlocks privately for Merchant review
+        : CollabStatus.DRAFT_REVISION_REQUESTED;       // Creator must fix & re-upload
 
       const updated = await prisma.collaborationRequest.update({
         where: { id },
@@ -311,7 +622,7 @@ collabsRouter.patch(
       res.json({
         message: approved
           ? 'EVOC Quality Review passed! Draft unlocked privately for Merchant review.'
-          : 'EVOC Review completed. Changes requested from creator.',
+          : 'EVOC Review completed. Changes requested from creator — status set to DRAFT_REVISION_REQUESTED.',
         status: updated.status
       });
     } catch (err: any) {
@@ -321,7 +632,7 @@ collabsRouter.patch(
 );
 
 // ============================================================================
-// 5. PATCH /api/collabs/:id/merchant-approval (Stage 2: Merchant gives final approval)
+// 9. PATCH /api/collabs/:id/merchant-approval (Stage 2: Merchant gives final approval & Asset Handoff)
 // ============================================================================
 collabsRouter.patch(
   '/:id/merchant-approval',
@@ -373,15 +684,28 @@ collabsRouter.patch(
         }
       });
 
-      const utmDestinationUrl = `https://${merchant.brandName.toLowerCase().replace(/[^a-z0-9]/g, '')}.com/p?utm_content=${updated.utmTrackingSlug}`;
+      const brandDomain = merchant.brandName.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const metaAdsUtmLink = `https://${brandDomain}.com/p?utm_content=${updated.utmTrackingSlug}&utm_source=meta&utm_medium=ugc_ad`;
+
+      // Dispatch async notifications on approval (fire-and-forget)
+      if (approved) {
+        dispatchAssetApproved({
+          collabId: updated.id,
+          merchantId: merchant.id,
+          creatorId: collab.creatorId,
+          approvedVideoUrl: approvedVideoUrl ?? '',
+          utmTrackingSlug: updated.utmTrackingSlug ?? undefined
+        }).catch((err) => console.error('[Queue] dispatchAssetApproved failed:', err.message));
+      }
 
       res.json({
         message: approved
-          ? 'Final approval recorded! Ad video asset delivered and UTM tracking link activated.'
+          ? 'Final approval recorded! High-res asset delivered and Meta Ads UTM link generated.'
           : 'Merchant feedback recorded. Collab remains pending merchant review.',
         status: updated.status,
         downloadableAssetUrl: updated.approvedVideoUrl,
-        utmTrackingLink: utmDestinationUrl
+        utmTrackingLink: metaAdsUtmLink,
+        metaAdsCampaignLink: metaAdsUtmLink
       });
     } catch (err: any) {
       res.status(400).json({ error: err.message || 'Failed to process merchant approval' });
