@@ -8,6 +8,15 @@ export const webhooksRouter = Router();
 // POST /api/webhooks/order-completed (EVOC Checkout Webhook)
 webhooksRouter.post('/order-completed', async (req, res) => {
   try {
+    // Recommendation 1: Webhook Secret Authentication Gate
+    const configuredSecret = process.env.CHECKOUT_WEBHOOK_SECRET;
+    if (configuredSecret) {
+      const incomingSecret = req.headers['x-webhook-secret'];
+      if (!incomingSecret || incomingSecret !== configuredSecret) {
+        return res.status(401).json({ error: 'Unauthorized: Invalid or missing webhook signature' });
+      }
+    }
+
     const payload = OrderWebhookPayloadSchema.parse(req.body);
 
     if (!payload.utmCreatorId) {
@@ -24,24 +33,26 @@ webhooksRouter.post('/order-completed', async (req, res) => {
       return res.status(200).json({ received: true, note: 'No matching creator campaign found' });
     }
 
-    // Commission points directly set in the collaboration agreement
-    const pointsEarned = collab.commissionPointsPerSale;
+    // Calculate Points (10% commission on order value)
+    const pointsEarned = Math.round(Number(payload.orderTotal) * 0.1);
 
-    // Record order commission using PointsService (Atomic + Idempotent)
+    // Call Sai's PointsService to atomically & idempotently record order attribution,
+    // lock points in ledger, and increment creator balance
     const result = await PointsService.recordOrderCommission({
       collabId: collab.id,
       creatorId: collab.creatorId,
       orderId: payload.orderId,
       orderTotal: Number(payload.orderTotal),
       pointsEarned,
-      description: `Order #${payload.orderId} via Ad Campaign`
+      description: `Commission for Order #${payload.orderId} via Ad Campaign`
     });
 
     if (result.duplicate) {
+      console.log(`⚠️ Order Webhook duplicate ignored: Order #${payload.orderId} already credited`);
       return res.status(200).json({
         received: true,
-        note: `Order #${payload.orderId} was already processed and credited`,
-        creatorId: collab.creatorId
+        duplicate: true,
+        note: `Order #${payload.orderId} was already attributed`
       });
     }
 
