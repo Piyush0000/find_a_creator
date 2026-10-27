@@ -22,7 +22,8 @@
     "db:studio": "pnpm --filter @evoc/database db:studio",
     "test:brief": "pnpm --filter @evoc/api test:brief",
     "test:day2": "pnpm --filter @evoc/api test:day2",
-    "test:day3": "pnpm --filter @evoc/api test:day3"
+    "test:day3": "pnpm --filter @evoc/api test:day3",
+    "test:sprint-day1": "pnpm --filter @evoc/api test:sprint-day1"
   },
   "devDependencies": {
     "prettier": "^3.3.3",

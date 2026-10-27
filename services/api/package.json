@@ -8,10 +8,13 @@
     "test:brief": "tsx --env-file=../../.env ../../scripts/test-brief.ts",
     "test:day2": "tsx --env-file=../../.env ../../scripts/test-day2.ts",
     "test:day3": "tsx --env-file=../../.env ../../scripts/test-day3.ts",
+    "test:sprint-day1": "tsx --env-file=../../.env ../../scripts/test-sprint-day1.ts",
     "build": "tsc",
     "start": "node dist/main.js"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.670.0",
+    "@aws-sdk/s3-request-presigner": "^3.670.0",
     "@evoc/database": "workspace:*",
     "@evoc/types": "workspace:*",
     "bcrypt": "^5.1.1",

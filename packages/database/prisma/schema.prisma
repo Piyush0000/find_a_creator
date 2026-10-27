@@ -151,8 +151,14 @@ model CollaborationRequest {
   commissionPointsPerSale Int          @default(100)
   status                  CollabStatus @default(BRIEF_SUBMITTED)
   
+  // Logistics & Sample Tracking
+  courierName             String?      // e.g. "BlueDart", "Delhivery"
+  trackingNumber          String?      // e.g. "BD12345678IN"
+  trackingUrl             String?      // Tracking link for creator
+  sampleDispatchedAt      DateTime?
+  
   // Deliverable Tracking
-  draftVideoUrl           String?      // Private S3 URL
+  draftVideoUrl           String?      // Private Cloudflare R2 / S3 URL
   evocReviewNotes         String?      // Internal notes from EVOC Ops
   merchantReviewNotes     String?      // Feedback from merchant
   approvedVideoUrl        String?      // Final high-res asset for merchant ads

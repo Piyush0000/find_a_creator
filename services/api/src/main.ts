@@ -21,6 +21,7 @@ import { authRouter } from './routes/auth.js';
 import { creatorsRouter } from './routes/creators.js';
 import { collabsRouter } from './routes/collabs.js';
 import { webhooksRouter } from './routes/webhooks.js';
+import { mediaRouter } from './routes/media.js';
 
 export const app = express();
 const PORT = process.env.PORT || 4000;
@@ -40,6 +41,7 @@ app.use('/api/auth', authRouter);
 app.use('/api/creators', creatorsRouter);
 app.use('/api/collabs', collabsRouter);
 app.use('/api/webhooks', webhooksRouter);
+app.use('/api/media', mediaRouter);
 
 app.listen(PORT, () => {
   console.log(`🚀 EVOC Creator Network API listening on http://localhost:${PORT}`);
