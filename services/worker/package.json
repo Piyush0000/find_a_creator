@@ -2,15 +2,16 @@
   "name": "@evoc/worker",
   "version": "1.0.0",
   "private": true,
-  "main": "./src/main.ts",
+  "main": "./src/index.ts",
   "scripts": {
-    "dev": "tsx watch src/main.ts",
-    "build": "tsc",
-    "start": "node dist/main.js"
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "build": "tsc"
   },
   "dependencies": {
     "@evoc/database": "workspace:*",
     "@evoc/types": "workspace:*",
+    "bullmq": "^5.13.0",
     "dotenv": "^16.4.5",
     "ioredis": "^5.4.1"
   },

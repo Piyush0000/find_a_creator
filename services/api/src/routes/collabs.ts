@@ -4,6 +4,11 @@ import { prisma, CollabStatus, UserRole } from '@evoc/database';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { antiLeakScan } from '../middleware/antiLeak.js';
 import { CreateCollabBriefSchema } from '@evoc/types';
+import {
+  dispatchBriefSubmitted,
+  dispatchDraftUploaded,
+  dispatchAssetApproved
+} from '../queues/dispatcher.js';
 
 export const collabsRouter = Router();
 
@@ -73,6 +78,14 @@ collabsRouter.post(
           utmTrackingSlug: utmSlug
         }
       });
+
+      // Dispatch async notifications (fire-and-forget — non-blocking)
+      dispatchBriefSubmitted({
+        collabId: collab.id,
+        merchantId: merchant.id,
+        creatorId: parsed.creatorId,
+        productName: parsed.productName
+      }).catch((err) => console.error('[Queue] dispatchBriefSubmitted failed:', err.message));
 
       res.status(201).json({
         message: 'Brief submitted! Dual-dispatched to Creator queue and Super Admin moderation.',
@@ -391,6 +404,13 @@ collabsRouter.post(
         }
       });
 
+      // Dispatch async notification to EVOC Ops (fire-and-forget)
+      dispatchDraftUploaded({
+        collabId: updated.id,
+        creatorId: creator.id,
+        draftVideoUrl
+      }).catch((err) => console.error('[Queue] dispatchDraftUploaded failed:', err.message));
+
       res.status(200).json({
         message: 'Draft video uploaded successfully. Status: DRAFT_PENDING_EVOC (100% PRIVATE — Under EVOC Ops Quality Review).',
         collabId: updated.id,
@@ -586,6 +606,17 @@ collabsRouter.patch(
 
       const brandDomain = merchant.brandName.toLowerCase().replace(/[^a-z0-9]/g, '');
       const metaAdsUtmLink = `https://${brandDomain}.com/p?utm_content=${updated.utmTrackingSlug}&utm_source=meta&utm_medium=ugc_ad`;
+
+      // Dispatch async notifications on approval (fire-and-forget)
+      if (approved) {
+        dispatchAssetApproved({
+          collabId: updated.id,
+          merchantId: merchant.id,
+          creatorId: collab.creatorId,
+          approvedVideoUrl: approvedVideoUrl ?? '',
+          utmTrackingSlug: updated.utmTrackingSlug ?? undefined
+        }).catch((err) => console.error('[Queue] dispatchAssetApproved failed:', err.message));
+      }
 
       res.json({
         message: approved

@@ -52,6 +52,12 @@ enum PointsStatus {
   CANCELLED
 }
 
+enum PayoutStatus {
+  PENDING_UTR   // Waiting for bank UTR confirmation
+  CLEARED       // Payment confirmed, UTR recorded
+  REJECTED      // Admin rejected payout request
+}
+
 model User {
   id           String    @id @default(uuid()) @db.Uuid
   email        String    @unique
@@ -104,6 +110,7 @@ model CreatorProfile {
   reviews           CreatorReview[]
   collabs           CollaborationRequest[]
   pointsLedger      EvocPointsLedger[]
+  payoutRequests    PayoutRequest[]
 
   @@map("creator_profiles")
 }
@@ -201,4 +208,20 @@ model OrderAttribution {
   collab       CollaborationRequest @relation(fields: [collabId], references: [id], onDelete: Cascade)
 
   @@map("order_attributions")
+}
+
+model PayoutRequest {
+  id              String       @id @default(uuid()) @db.Uuid
+  creatorId       String       @db.Uuid
+  pointsRedeemed  Int          // Points deducted for this payout
+  upiVpa          String       // Masked UPI VPA stored for audit (e.g. roh***@okhdfcbank)
+  status          PayoutStatus @default(PENDING_UTR)
+  utrNumber       String?      // Bank UTR once cleared
+  adminNotes      String?      // Notes from EVOC Finance team
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  creator         CreatorProfile @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@map("payout_requests")
 }

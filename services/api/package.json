@@ -9,6 +9,7 @@
     "test:day2": "tsx --env-file=../../.env ../../scripts/test-day2.ts",
     "test:day3": "tsx --env-file=../../.env ../../scripts/test-day3.ts",
     "test:sprint-day1": "tsx --env-file=../../.env ../../scripts/test-sprint-day1.ts",
+    "test:sprint-day2": "tsx --env-file=../../.env ../../scripts/test-sprint-day2.ts",
     "build": "tsc",
     "start": "node dist/main.js"
   },
@@ -18,6 +19,7 @@
     "@evoc/database": "workspace:*",
     "@evoc/types": "workspace:*",
     "bcrypt": "^5.1.1",
+    "bullmq": "^5.13.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.21.1",

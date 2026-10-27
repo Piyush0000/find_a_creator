@@ -4,19 +4,29 @@ import crypto from 'crypto';
 
 // Cloudflare R2 is 100% S3-compatible.
 const R2_ACCOUNT_ID = process.env.R2_ACCOUNT_ID || 'mock_r2_account_id';
-const R2_ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID || 'mock_r2_access_key';
-const R2_SECRET_ACCESS_KEY = process.env.R2_SECRET_ACCESS_KEY || 'mock_r2_secret_key';
+const R2_ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID || process.env.R2_ACCESS_KEY || 'mock_r2_access_key';
+const R2_SECRET_ACCESS_KEY = process.env.R2_SECRET_ACCESS_KEY || process.env.R2_SECRET_KEY || 'mock_r2_secret_key';
 export const R2_BUCKET_NAME = process.env.R2_BUCKET_NAME || 'evoc-media-vault';
 export const R2_PUBLIC_DOMAIN = process.env.R2_PUBLIC_DOMAIN || 'https://media.evoclabs.com';
 
-export const r2Client = new S3Client({
-  region: 'auto',
-  endpoint: `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-  credentials: {
-    accessKeyId: R2_ACCESS_KEY_ID,
-    secretAccessKey: R2_SECRET_ACCESS_KEY
-  }
-});
+export function getR2Client(): S3Client {
+  const accountId = (process.env.R2_ACCOUNT_ID || 'mock_r2_account_id').trim();
+  const accessKeyId = (process.env.R2_ACCESS_KEY_ID || process.env.R2_ACCESS_KEY || 'mock_r2_access_key').trim();
+  const secretAccessKey = (process.env.R2_SECRET_ACCESS_KEY || process.env.R2_SECRET_KEY || 'mock_r2_secret_key').trim();
+
+  return new S3Client({
+    region: 'auto',
+    endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
+    credentials: {
+      accessKeyId,
+      secretAccessKey
+    },
+    requestChecksumCalculation: 'WHEN_REQUIRED',
+    responseChecksumValidation: 'WHEN_REQUIRED'
+  });
+}
+
+export const r2Client = getR2Client();
 
 export interface GeneratePresignedUrlOptions {
   filename: string;
@@ -55,22 +65,25 @@ export async function generateR2PresignedUrl(options: GeneratePresignedUrlOption
 
   let uploadUrl: string;
 
+  const bucketName = process.env.R2_BUCKET_NAME || R2_BUCKET_NAME;
+  const publicDomain = process.env.R2_PUBLIC_DOMAIN || R2_PUBLIC_DOMAIN;
+
   if (isMockMode) {
-    uploadUrl = `https://${R2_BUCKET_NAME}.r2.cloudflarestorage.com/${key}?mock-presigned=true&expires=${expiresInSeconds}`;
+    uploadUrl = `https://${bucketName}.r2.cloudflarestorage.com/${key}?mock-presigned=true&expires=${expiresInSeconds}`;
   } else {
+    const client = getR2Client();
     const command = new PutObjectCommand({
-      Bucket: R2_BUCKET_NAME,
+      Bucket: bucketName,
       Key: key,
-      ContentType: contentType,
-      ContentLength: fileSizeBytes
+      ContentType: contentType
     });
 
-    uploadUrl = await getSignedUrl(r2Client, command, {
+    uploadUrl = await getSignedUrl(client, command, {
       expiresIn: expiresInSeconds // 15-minute expiration (900 seconds)
     });
   }
 
-  const publicUrl = `${R2_PUBLIC_DOMAIN}/${key}`;
+  const publicUrl = `${publicDomain}/${key}`;
 
   return {
     uploadUrl,
