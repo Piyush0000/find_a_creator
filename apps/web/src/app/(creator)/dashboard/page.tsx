@@ -170,33 +170,62 @@ export default function CreatorDashboardPage() {
     setUploadProgress(15);
 
     try {
-      await fetch(`${API_BASE}/api/media/presigned-url`, {
+      let videoUrl = URL.createObjectURL(file);
+
+      // 1. Request presigned upload URL from API
+      const presignRes = await fetch(`${API_BASE}/api/media/presigned-url`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {})
         },
         body: JSON.stringify({
-          fileName: file.name,
+          filename: file.name,
           contentType: file.type,
-          fileSize: file.size,
-          dealId: selectedDealForUpload
+          fileSizeBytes: file.size,
+          folder: 'drafts'
         })
       }).catch(() => null);
 
-      for (let p = 30; p <= 90; p += 20) {
-        await new Promise((r) => setTimeout(r, 120));
-        setUploadProgress(p);
+      if (presignRes && presignRes.ok) {
+        const presignData = await presignRes.json();
+        setUploadProgress(40);
+
+        // 2. Direct upload to Cloudflare R2
+        if (presignData.uploadUrl) {
+          const r2Res = await fetch(presignData.uploadUrl, {
+            method: 'PUT',
+            headers: { 'Content-Type': file.type },
+            body: file
+          }).catch(() => null);
+
+          if (r2Res && r2Res.ok && presignData.publicUrl) {
+            videoUrl = presignData.publicUrl;
+          }
+        }
       }
 
-      await new Promise((r) => setTimeout(r, 200));
+      setUploadProgress(75);
+
+      // 3. Link draft video URL to collaboration in database
+      if (selectedDealForUpload) {
+        await fetch(`${API_BASE}/api/collabs/${selectedDealForUpload}/draft`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify({ draftVideoUrl: videoUrl })
+        }).catch(() => null);
+      }
+
       setUploadProgress(100);
 
       // Transition the deal to DRAFT_PENDING_EVOC
       setDeals((prev) =>
         prev.map((deal) =>
           deal.id === selectedDealForUpload
-            ? { ...deal, status: 'DRAFT_PENDING_EVOC', draftVideoUrl: URL.createObjectURL(file) }
+            ? { ...deal, status: 'DRAFT_PENDING_EVOC', draftVideoUrl: videoUrl }
             : deal
         )
       );

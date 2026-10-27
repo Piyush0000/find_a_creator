@@ -32,6 +32,7 @@ enum CollabStatus {
   CREATOR_ACCEPTED        // Creator agreed to shoot ad
   SAMPLE_DISPATCHED      // Sample in transit via EVOC Logistics
   DRAFT_PENDING_EVOC      // 100% PRIVATE: Visible only to EVOC Ops
+  DRAFT_REVISION_REQUESTED // EVOC rejected draft — Creator must fix & re-upload
   DRAFT_PENDING_MERCHANT  // STILL PRIVATE: Unlocked for Merchant review
   ASSET_DELIVERED          // Merchant approved, received ad asset
   CAMPAIGN_ACTIVE          // Ad running with UTM tracking

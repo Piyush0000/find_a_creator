@@ -114,14 +114,18 @@ collabsRouter.post(
         return res.status(403).json({ error: 'Forbidden: You are not assigned to this collaboration' });
       }
 
-      // 4. State Machine Guard: Cannot upload if already delivered or declined
-      if (
-        collab.status === CollabStatus.ASSET_DELIVERED ||
-        collab.status === CollabStatus.CAMPAIGN_ACTIVE ||
-        collab.status === CollabStatus.COMPLETED ||
-        collab.status === CollabStatus.DECLINED
-      ) {
-        return res.status(400).json({ error: `Cannot upload draft: Collaboration is already ${collab.status}` });
+      // 4. State Machine Guard: Only allow upload from valid states
+      const allowedUploadStates = (
+        [
+          CollabStatus.BRIEF_SUBMITTED,
+          CollabStatus.DRAFT_REVISION_REQUESTED
+        ] as CollabStatus[]
+      );
+
+      if (!allowedUploadStates.includes(collab.status)) {
+        return res.status(400).json({
+          error: `Cannot upload draft: Collaboration is in status '${collab.status}'. Draft upload is only allowed when status is BRIEF_SUBMITTED or DRAFT_REVISION_REQUESTED.`
+        });
       }
 
       // 5. Update draft and transition to DRAFT_PENDING_EVOC (100% PRIVATE)
@@ -241,7 +245,6 @@ collabsRouter.get(
       }
 
       // SECURITY RULE: Private Draft Locking
-      // Merchants CANNOT view draftVideoUrl until status is DRAFT_PENDING_MERCHANT or beyond
       const isUnlockedForMerchant = (
         [
           CollabStatus.DRAFT_PENDING_MERCHANT,
@@ -259,7 +262,6 @@ collabsRouter.get(
       }
 
       // SECURITY RULE: Internal Admin Notes Privacy
-      // Internal moderation notes are strictly confidential to Super Admins
       if (!isAdmin) {
         delete responseData.evocReviewNotes;
       }
@@ -297,8 +299,8 @@ collabsRouter.patch(
       }
 
       const nextStatus = approved
-        ? CollabStatus.DRAFT_PENDING_MERCHANT // Unlocks privately for Merchant review
-        : CollabStatus.DRAFT_PENDING_EVOC; // Revisions needed
+        ? CollabStatus.DRAFT_PENDING_MERCHANT          // Unlocks privately for Merchant review
+        : CollabStatus.DRAFT_REVISION_REQUESTED;       // Creator must fix & re-upload
 
       const updated = await prisma.collaborationRequest.update({
         where: { id },
@@ -311,7 +313,7 @@ collabsRouter.patch(
       res.json({
         message: approved
           ? 'EVOC Quality Review passed! Draft unlocked privately for Merchant review.'
-          : 'EVOC Review completed. Changes requested from creator.',
+          : 'EVOC Review completed. Changes requested from creator — status set to DRAFT_REVISION_REQUESTED.',
         status: updated.status
       });
     } catch (err: any) {
