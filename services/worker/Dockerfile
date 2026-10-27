@@ -20,4 +20,4 @@ COPY --from=builder /app/packages/types ./packages/types
 COPY --from=builder /app/services/worker ./services/worker
 RUN pnpm install --prod
 
-CMD ["node", "services/worker/dist/main.js"]
+CMD ["node", "services/worker/dist/index.js"]
