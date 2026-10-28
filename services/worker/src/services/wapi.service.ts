@@ -11,12 +11,18 @@ export class WapiService {
 
   constructor() {
     this.baseUrl = (process.env.WAPI_BASE_URL || 'https://app.wapi.in.net/api').replace(/\/+$/, '');
-    this.token = (process.env.WAPI_TOKEN || '').trim();
-    this.vendorUid = (process.env.WAPI_VENDOR_UID || '').trim();
 
-    if (!this.token || !this.vendorUid) {
-      console.warn('⚠️ [WAPI] WAPI_TOKEN or WAPI_VENDOR_UID is not set in .env — WhatsApp API calls will fail.');
+    const token = process.env.WAPI_TOKEN;
+    const vendorUid = process.env.WAPI_VENDOR_UID;
+
+    if (!token || !vendorUid) {
+      throw new Error(
+        '❌ [CONFIG ERROR] Missing WAPI credentials in environment variables! Both WAPI_TOKEN and WAPI_VENDOR_UID are required.'
+      );
     }
+
+    this.token = token.trim();
+    this.vendorUid = vendorUid.trim();
   }
 
   get vendorBaseUrl(): string {

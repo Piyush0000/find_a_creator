@@ -13,9 +13,15 @@ dotenv.config({ path: path.resolve(__dirname, '../.env') });
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 dotenv.config();
 
+const TOKEN = process.env.WAPI_TOKEN;
+const VENDOR_UID = process.env.WAPI_VENDOR_UID;
 const BASE_URL = (process.env.WAPI_BASE_URL || 'https://app.wapi.in.net/api').replace(/\/+$/, '');
-const VENDOR_UID = (process.env.WAPI_VENDOR_UID || '').trim();
-const TOKEN = (process.env.WAPI_TOKEN || '').trim();
+
+if (!TOKEN || !VENDOR_UID) {
+  console.error('❌ [CONFIG ERROR] Missing WAPI credentials in .env!');
+  console.error('   Required: WAPI_TOKEN and WAPI_VENDOR_UID');
+  process.exit(1);
+}
 
 function formatPhone(phone: string): string {
   const clean = String(phone).replace(/\D/g, '');
@@ -77,11 +83,6 @@ async function sendTemplate(
 async function main() {
   const targetPhone = process.argv[2] || process.env.TEST_WHATSAPP_PHONE;
   const targetTemplate = process.argv[3] || 'all';
-
-  if (!TOKEN || !VENDOR_UID) {
-    console.error('❌ Missing WAPI credentials in .env! (WAPI_TOKEN, WAPI_VENDOR_UID)');
-    process.exit(1);
-  }
 
   if (!targetPhone) {
     console.log(`\n⚠️  No phone number provided!`);
