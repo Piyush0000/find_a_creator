@@ -11,6 +11,28 @@ export const ANTI_LEAK_PATTERNS: Record<string, RegExp> = {
   CIRCUMVENTION_KEYWORDS: /(call me|whatsapp me|dm on ig|dm me|pay outside|gpay direct|phonepe direct|cash on side|contact me directly|reach out directly|pay directly|message me on|offline payment)/gi
 };
 
+/**
+ * Rules applied to URL fields (e.g. product store links).
+ * Phone rules are skipped because store URLs routinely contain long numeric product/variant IDs;
+ * phone leaks via links (wa.me/<number>) are still caught by SOCIAL_HANDLE.
+ */
+export const LINK_LEAK_RULES = ['EMAIL', 'SOCIAL_HANDLE'] as const;
+
+export function detectLinkLeaks(url: string): string[] {
+  const violations: string[] = [];
+
+  for (const rule of LINK_LEAK_RULES) {
+    const regex = ANTI_LEAK_PATTERNS[rule];
+    regex.lastIndex = 0;
+    if (regex.test(url)) {
+      violations.push(rule);
+    }
+    regex.lastIndex = 0;
+  }
+
+  return violations;
+}
+
 export function sanitizeText(text: string): { sanitized: string; hasViolations: boolean; violations: string[] } {
   let sanitized = text;
   const violations: string[] = [];

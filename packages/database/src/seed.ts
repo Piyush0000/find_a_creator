@@ -13,7 +13,7 @@ async function main() {
     create: {
       email: 'admin@evoclabs.com',
       phoneNumber: '9999999999',
-      passwordHash: '$2b$10$ep5z/05B95N2QO0nCgE1gODz3K.P.1X4fD65qJpE602s14pY7eJtK',
+      passwordHash: '$2b$10$77M1jBv1z3J3ZvVHSxju..DJYth8kSNJz.mz.E1Hg7XPLSDW5i/QC', // Password123!
       role: UserRole.SUPER_ADMIN,
       isVerified: true
     }
@@ -26,7 +26,7 @@ async function main() {
     create: {
       email: 'founder@glowskincare.com',
       phoneNumber: '9876543210',
-      passwordHash: '$2b$10$ep5z/05B95N2QO0nCgE1gODz3K.P.1X4fD65qJpE602s14pY7eJtK',
+      passwordHash: '$2b$10$77M1jBv1z3J3ZvVHSxju..DJYth8kSNJz.mz.E1Hg7XPLSDW5i/QC', // Password123!
       role: UserRole.MERCHANT,
       isVerified: true,
       merchantProfile: {
@@ -48,7 +48,7 @@ async function main() {
     create: {
       email: 'rohit.creator@evoc.internal',
       phoneNumber: '9123456780',
-      passwordHash: '$2b$10$ep5z/05B95N2QO0nCgE1gODz3K.P.1X4fD65qJpE602s14pY7eJtK',
+      passwordHash: '$2b$10$77M1jBv1z3J3ZvVHSxju..DJYth8kSNJz.mz.E1Hg7XPLSDW5i/QC', // Password123!
       role: UserRole.CREATOR,
       isVerified: true,
       creatorProfile: {
@@ -81,7 +81,7 @@ async function main() {
     create: {
       email: 'priya.creator@evoc.internal',
       phoneNumber: '9123456781',
-      passwordHash: '$2b$10$ep5z/05B95N2QO0nCgE1gODz3K.P.1X4fD65qJpE602s14pY7eJtK',
+      passwordHash: '$2b$10$77M1jBv1z3J3ZvVHSxju..DJYth8kSNJz.mz.E1Hg7XPLSDW5i/QC', // Password123!
       role: UserRole.CREATOR,
       isVerified: true,
       creatorProfile: {

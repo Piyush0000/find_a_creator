@@ -42,7 +42,7 @@ collabsRouter.post(
   '/',
   requireAuth,
   requireRole(UserRole.MERCHANT),
-  antiLeakScan(['scriptGuidelines', 'videoHooks']),
+  antiLeakScan(['productName', 'scriptGuidelines', 'videoHooks'], ['productLink']),
   async (req, res) => {
     try {
       const parsed = CreateCollabBriefSchema.parse(req.body);
@@ -461,7 +461,12 @@ collabsRouter.get(
         scriptGuidelines: collab.scriptGuidelines,
         videoHooks: collab.videoHooks,
         draftVideoUrl: collab.draftVideoUrl,
-        courierTracking: collab.status === CollabStatus.SAMPLE_DISPATCHED ? 'Bluedart Express: BD-9948210-IN' : undefined,
+        // Revision feedback from EVOC Ops is shared only when a re-shoot is requested
+        revisionNotes:
+          collab.status === CollabStatus.DRAFT_REVISION_REQUESTED ? collab.evocReviewNotes : undefined,
+        courierTracking: collab.trackingNumber
+          ? `${collab.courierName ?? 'Courier'}: ${collab.trackingNumber}`
+          : undefined,
         createdAt: collab.createdAt
       }));
 

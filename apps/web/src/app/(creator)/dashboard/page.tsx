@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   Coins,
   Clock,
@@ -22,6 +23,8 @@ import {
   AlertCircle,
   RefreshCw
 } from 'lucide-react';
+import { clearRoleCookie } from '@/lib/session';
+import CreatorNav from '@/components/CreatorNav';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -39,13 +42,26 @@ interface DealItem {
   commissionPointsPerSale: number;
   deliverableType: string;
   aspectRatio: string;
-  status: 'BRIEF_SUBMITTED' | 'SAMPLE_DISPATCHED' | 'DRAFT_PENDING_EVOC' | 'DRAFT_PENDING_MERCHANT' | 'ASSET_DELIVERED';
+  status:
+    | 'BRIEF_SUBMITTED'
+    | 'CREATOR_ACCEPTED'
+    | 'SAMPLE_DISPATCHED'
+    | 'DRAFT_PENDING_EVOC'
+    | 'DRAFT_REVISION_REQUESTED'
+    | 'EVOC_APPROVED'
+    | 'DRAFT_PENDING_MERCHANT'
+    | 'ASSET_DELIVERED'
+    | 'CAMPAIGN_ACTIVE'
+    | 'COMPLETED'
+    | 'DECLINED';
   scriptGuidelines: string;
   courierTracking?: string;
+  revisionNotes?: string;
   draftVideoUrl?: string;
 }
 
 export default function CreatorDashboardPage() {
+  const router = useRouter();
   const [token, setToken] = useState<string | null>(null);
   const [displayAlias, setDisplayAlias] = useState<string>('Sai K. — Tech & Lifestyle');
   const [points, setPoints] = useState<PointsSummary>({
@@ -68,70 +84,55 @@ export default function CreatorDashboardPage() {
   // Detail Modal for Brief viewing
   const [selectedBriefDetail, setSelectedBriefDetail] = useState<DealItem | null>(null);
 
-  // Initialize Session & Fetch Live Data
+  // Initialize Session & Fetch Live Data (Strict Route Guard)
   const initSession = async () => {
     setLoading(true);
     setApiError(null);
     try {
-      let activeToken = localStorage.getItem('evoc_token');
+      const activeToken = localStorage.getItem('evoc_token');
 
+      // Strict Auth Guard: If no token exists, redirect to login
       if (!activeToken) {
-        const loginRes = await fetch(`${API_BASE}/api/auth/login`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email: 'sai.creator@evoclabs.com',
-            password: 'Password123!'
-          })
+        router.push('/login?redirect=/dashboard');
+        return;
+      }
+
+      setToken(activeToken);
+
+      // Fetch Live Points Summary
+      const pointsRes = await fetch(`${API_BASE}/api/creators/me/points`, {
+        headers: { Authorization: `Bearer ${activeToken}` }
+      });
+
+      if (pointsRes.status === 401) {
+        localStorage.removeItem('evoc_token');
+        router.push('/login?redirect=/dashboard');
+        return;
+      }
+
+      if (pointsRes.ok) {
+        const pointsData = await pointsRes.json();
+        setPoints({
+          pointsBalance: pointsData.pointsBalance || 0,
+          lockedPoints: pointsData.lockedPoints || 0,
+          settledPoints: pointsData.settledPoints || 0
         });
-
-        if (!loginRes.ok) {
-          throw new Error(`Authentication failed with status ${loginRes.status}`);
-        }
-
-        const data = await loginRes.json();
-        activeToken = data.token;
-        if (activeToken) localStorage.setItem('evoc_token', activeToken);
-        if (data.user?.creatorProfile?.displayAlias) {
-          setDisplayAlias(data.user.creatorProfile.displayAlias);
+        if (pointsData.displayAlias) {
+          setDisplayAlias(pointsData.displayAlias);
         }
       }
 
-      if (activeToken) {
-        setToken(activeToken);
+      // Fetch Live Creator Deals
+      const dealsRes = await fetch(`${API_BASE}/api/collabs/creator`, {
+        headers: { Authorization: `Bearer ${activeToken}` }
+      });
 
-        // Fetch Live Points Summary
-        const pointsRes = await fetch(`${API_BASE}/api/creators/me/points`, {
-          headers: { Authorization: `Bearer ${activeToken}` }
-        });
-
-        if (pointsRes.ok) {
-          const pointsData = await pointsRes.json();
-          setPoints({
-            pointsBalance: pointsData.pointsBalance || 0,
-            lockedPoints: pointsData.lockedPoints || 0,
-            settledPoints: pointsData.settledPoints || 0
-          });
-          if (pointsData.displayAlias) {
-            setDisplayAlias(pointsData.displayAlias);
-          }
-        } else if (pointsRes.status === 401) {
-          localStorage.removeItem('evoc_token');
-          throw new Error('Creator session expired. Please retry.');
-        }
-
-        // Fetch Live Creator Deals
-        const dealsRes = await fetch(`${API_BASE}/api/collabs/creator`, {
-          headers: { Authorization: `Bearer ${activeToken}` }
-        });
-
-        if (dealsRes.ok) {
-          const dealsData = await dealsRes.json();
-          const loadedDeals = dealsData.deals || [];
-          setDeals(loadedDeals);
-          if (loadedDeals.length > 0) {
-            setSelectedDealForUpload(loadedDeals[0].id);
-          }
+      if (dealsRes.ok) {
+        const dealsData = await dealsRes.json();
+        const loadedDeals = dealsData.deals || [];
+        setDeals(loadedDeals);
+        if (loadedDeals.length > 0) {
+          setSelectedDealForUpload(loadedDeals[0].id);
         }
       }
     } catch (err: any) {
@@ -142,9 +143,81 @@ export default function CreatorDashboardPage() {
     }
   };
 
+  const handleLogout = () => {
+    localStorage.removeItem('evoc_token');
+    localStorage.removeItem('evoc_role');
+    localStorage.removeItem('evoc_user');
+    localStorage.removeItem('evoc_merchant_token');
+    localStorage.removeItem('evoc_admin_token');
+    clearRoleCookie();
+    router.push('/login');
+  };
+
+  const handleAcceptDeal = async (dealId: string) => {
+    try {
+      const activeToken = token || localStorage.getItem('evoc_token');
+      const res = await fetch(`${API_BASE}/api/collabs/${dealId}/accept`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {})
+        }
+      });
+      if (res.ok) {
+        setDeals((prev) =>
+          prev.map((d) => (d.id === dealId ? { ...d, status: 'CREATOR_ACCEPTED' } : d))
+        );
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        alert(errData.error || 'Failed to accept deal');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Network error while accepting deal');
+    }
+  };
+
+  const handleDeclineDeal = async (dealId: string) => {
+    if (!confirm('Are you sure you want to decline this collaboration?')) return;
+    try {
+      const activeToken = token || localStorage.getItem('evoc_token');
+      const res = await fetch(`${API_BASE}/api/collabs/${dealId}/decline`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {})
+        }
+      });
+      if (res.ok) {
+        setDeals((prev) => prev.filter((d) => d.id !== dealId));
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        alert(errData.error || 'Failed to decline deal');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Network error while declining deal');
+    }
+  };
+
   useEffect(() => {
     initSession();
   }, []);
+
+  // PUT the raw file to the presigned R2 URL with real progress reporting
+  const uploadFileToR2 = (uploadUrl: string, file: File, onProgress: (percent: number) => void) =>
+    new Promise<void>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('PUT', uploadUrl);
+      xhr.setRequestHeader('Content-Type', file.type);
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress((e.loaded / e.total) * 100);
+      };
+      xhr.onload = () =>
+        xhr.status >= 200 && xhr.status < 300
+          ? resolve()
+          : reject(new Error(`Video upload to storage failed (status ${xhr.status}). Please try again.`));
+      xhr.onerror = () => reject(new Error('Network error while uploading the video. Please try again.'));
+      xhr.send(file);
+    });
 
   // Handle Video Upload
   const handleFileUpload = async (file: File) => {
@@ -167,36 +240,71 @@ export default function CreatorDashboardPage() {
     }
 
     setIsUploading(true);
-    setUploadProgress(15);
+    setUploadProgress(5);
 
     try {
-      await fetch(`${API_BASE}/api/media/presigned-url`, {
+      const activeToken = token || localStorage.getItem('evoc_token');
+
+      // 1. Request a 15-minute presigned R2 PUT URL
+      const presignRes = await fetch(`${API_BASE}/api/media/presigned-url`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {})
+          ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {})
         },
         body: JSON.stringify({
-          fileName: file.name,
+          filename: file.name,
           contentType: file.type,
-          fileSize: file.size,
-          dealId: selectedDealForUpload
+          fileSizeBytes: file.size,
+          folder: 'drafts'
         })
-      }).catch(() => null);
+      });
 
-      for (let p = 30; p <= 90; p += 20) {
-        await new Promise((r) => setTimeout(r, 120));
-        setUploadProgress(p);
+      const presignData = await presignRes.json().catch(() => ({}));
+      if (!presignRes.ok || !presignData.uploadUrl || !presignData.publicUrl) {
+        throw new Error(presignData.error || 'Could not get an upload URL. Please try again.');
       }
 
-      await new Promise((r) => setTimeout(r, 200));
+      setUploadProgress(10);
+
+      // 2. Stream the file directly from the browser to Cloudflare R2
+      // Local dev without R2 credentials returns a mock URL, so the file transfer is skipped
+      const isMockUpload = String(presignData.uploadUrl).includes('mock-presigned=true');
+      if (isMockUpload) {
+        console.warn('[Upload] R2 is in mock mode (no R2 credentials configured). Skipping file transfer.');
+      } else {
+        await uploadFileToR2(presignData.uploadUrl, file, (percent) =>
+          setUploadProgress(10 + Math.round(percent * 0.8))
+        );
+      }
+
+      setUploadProgress(90);
+
+      const draftVideoUrl: string = presignData.publicUrl;
+
+      // Submit Draft to Backend API to permanently transition state in PostgreSQL
+      const draftRes = await fetch(`${API_BASE}/api/collabs/${selectedDealForUpload}/draft`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {})
+        },
+        body: JSON.stringify({ draftVideoUrl })
+      });
+
+      if (!draftRes.ok) {
+        const errJson = await draftRes.json().catch(() => ({}));
+        throw new Error(errJson.error || 'Failed to submit draft to server');
+      }
+
+      await new Promise((r) => setTimeout(r, 150));
       setUploadProgress(100);
 
-      // Transition the deal to DRAFT_PENDING_EVOC
+      // Transition the deal to DRAFT_PENDING_EVOC in local state
       setDeals((prev) =>
         prev.map((deal) =>
           deal.id === selectedDealForUpload
-            ? { ...deal, status: 'DRAFT_PENDING_EVOC', draftVideoUrl: URL.createObjectURL(file) }
+            ? { ...deal, status: 'DRAFT_PENDING_EVOC', draftVideoUrl }
             : deal
         )
       );
@@ -214,63 +322,29 @@ export default function CreatorDashboardPage() {
     }
   };
 
-  const briefsReceived = deals.filter((d) => d.status === 'BRIEF_SUBMITTED');
-  const samplesInTransit = deals.filter((d) => d.status === 'SAMPLE_DISPATCHED');
-  const inReview = deals.filter(
+  const briefsReceived = deals.filter((d) => d.status === 'BRIEF_SUBMITTED' || d.status === 'EVOC_APPROVED');
+  const samplesInTransit = deals.filter(
     (d) =>
-      d.status === 'DRAFT_PENDING_EVOC' ||
-      d.status === 'DRAFT_PENDING_MERCHANT' ||
-      d.status === 'ASSET_DELIVERED'
+      d.status === 'SAMPLE_DISPATCHED' ||
+      d.status === 'CREATOR_ACCEPTED' ||
+      d.status === 'DRAFT_REVISION_REQUESTED'
   );
+  const inReview = deals.filter(
+    (d) => d.status === 'DRAFT_PENDING_EVOC' || d.status === 'DRAFT_PENDING_MERCHANT'
+  );
+  // Finished deals move out of the active board so columns don't grow forever
+  const delivered = deals.filter(
+    (d) => d.status === 'ASSET_DELIVERED' || d.status === 'CAMPAIGN_ACTIVE' || d.status === 'COMPLETED'
+  );
+  const activeDealsCount = briefsReceived.length + samplesInTransit.length + inReview.length;
 
   return (
     <div className="min-h-screen bg-[#FBFBFD] text-slate-900 font-sans antialiased">
-      {/* Top Navbar */}
-      <header className="border-b border-slate-200/80 bg-white/80 backdrop-blur-md sticky top-0 z-30">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3.5">
-          {/* Logo & Identity */}
-          <div className="flex items-center space-x-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-900 text-white font-bold text-sm tracking-tight shadow-sm">
-              E
-            </div>
-            <span className="font-semibold text-sm text-slate-900">{displayAlias}</span>
-          </div>
-
-          {/* Quick Actions & Points Ticker */}
-          <div className="flex items-center space-x-3">
-            <Link
-              href="/creators"
-              className="text-xs font-medium text-slate-500 hover:text-slate-900 transition px-3 py-1.5 rounded-lg hover:bg-slate-100"
-            >
-              Browse Directory
-            </Link>
-
-            <button
-              onClick={() => {
-                if (deals.length > 0) setSelectedDealForUpload(deals[0].id);
-                setIsUploadModalOpen(true);
-              }}
-              className="inline-flex items-center space-x-1.5 rounded-lg bg-slate-900 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-slate-800 transition"
-            >
-              <Upload className="h-3.5 w-3.5" />
-              <span>Submit Draft</span>
-            </button>
-
-            <div className="h-4 w-px bg-slate-200" />
-
-            {/* Subtle Points Balance Pill */}
-            <div className="flex items-center space-x-2 rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-1.5">
-              <Coins className="h-4 w-4 text-amber-500" />
-              <div className="flex items-baseline space-x-1">
-                <span className="text-sm font-bold text-slate-900 tracking-tight">
-                  {points.pointsBalance.toLocaleString()}
-                </span>
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">PTS</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </header>
+      <CreatorNav
+        displayAlias={displayAlias}
+        pointsBalance={points.pointsBalance}
+        onLogout={handleLogout}
+      />
 
       {/* Main Container */}
       <main className="mx-auto max-w-7xl px-6 py-8 space-y-8">
@@ -301,7 +375,7 @@ export default function CreatorDashboardPage() {
             <div className="flex items-center space-x-2">
               <span className="text-xs text-slate-400">Settlement Cycle:</span>
               <span className="inline-flex items-center rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
-                7-Day Shopper Return Window
+                14-Day Shopper Return Window
               </span>
             </div>
           </div>
@@ -326,7 +400,7 @@ export default function CreatorDashboardPage() {
               <div className="flex items-center justify-between text-xs text-slate-500">
                 <span className="flex items-center">
                   <Clock className="h-3.5 w-3.5 text-amber-500 mr-1.5" />
-                  Locked (7-Day Maturation)
+                  Locked (14-Day Maturation)
                 </span>
                 <span className="text-[11px] font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
                   Pending Clearance
@@ -355,7 +429,7 @@ export default function CreatorDashboardPage() {
                 {points.settledPoints.toLocaleString()} <span className="text-xs font-medium text-slate-400">pts</span>
               </div>
               <div className="mt-1 text-xs text-slate-400">
-                Instant UPI transfer (Min. threshold 500 pts)
+                Request a UPI payout (Min. threshold 500 pts)
               </div>
             </div>
           </div>
@@ -369,14 +443,14 @@ export default function CreatorDashboardPage() {
               <p className="text-xs text-slate-500">Manage brand briefs, shipping status, and draft reviews in real time.</p>
             </div>
             <span className="text-xs font-medium text-slate-400">
-              {deals.length} Active {deals.length === 1 ? 'Deal' : 'Deals'}
+              {activeDealsCount} Active {activeDealsCount === 1 ? 'Deal' : 'Deals'}
             </span>
           </div>
 
           {/* Kanban Board Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
             {/* Column 1: Briefs Received */}
-            <div className="rounded-2xl border border-slate-200/70 bg-[#F4F5F7] p-4 flex flex-col min-h-[460px]">
+            <div className="rounded-2xl border border-slate-200/70 bg-[#F4F5F7] p-4 flex flex-col h-[520px]">
               <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-200/80">
                 <div className="flex items-center space-x-2">
                   <div className="h-2 w-2 rounded-full bg-blue-500" />
@@ -387,7 +461,7 @@ export default function CreatorDashboardPage() {
                 </span>
               </div>
 
-              <div className="space-y-3 flex-1">
+              <div className="space-y-3 flex-1 overflow-y-auto -mr-2 pr-2">
                 {briefsReceived.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center p-6 text-center text-slate-400">
                     <Inbox className="h-8 w-8 mb-2 stroke-[1.5] text-slate-300" />
@@ -420,22 +494,25 @@ export default function CreatorDashboardPage() {
                         <span className="font-medium text-slate-600">₹{deal.productPrice} Retail</span>
                       </div>
 
-                      <div className="mt-3 grid grid-cols-2 gap-2">
+                      <div className="mt-3 flex items-center space-x-2">
                         <button
-                          onClick={() => {
-                            setDeals((prev) =>
-                              prev.map((d) => (d.id === deal.id ? { ...d, status: 'SAMPLE_DISPATCHED' } : d))
-                            );
-                          }}
-                          className="w-full rounded-lg bg-slate-900 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 transition"
+                          onClick={() => handleAcceptDeal(deal.id)}
+                          className="flex-1 rounded-lg bg-slate-900 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 transition"
                         >
                           Accept Deal
                         </button>
                         <button
                           onClick={() => setSelectedBriefDetail(deal)}
-                          className="w-full rounded-lg border border-slate-200 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
+                          className="flex-1 rounded-lg border border-slate-200 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
                         >
                           View Brief
+                        </button>
+                        <button
+                          onClick={() => handleDeclineDeal(deal.id)}
+                          title="Decline Brief"
+                          className="rounded-lg border border-slate-200 p-1.5 text-xs text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
+                        >
+                          <X className="h-3.5 w-3.5" />
                         </button>
                       </div>
                     </div>
@@ -444,25 +521,25 @@ export default function CreatorDashboardPage() {
               </div>
             </div>
 
-            {/* Column 2: Sample In Transit */}
-            <div className="rounded-2xl border border-slate-200/70 bg-[#F4F5F7] p-4 flex flex-col min-h-[460px]">
+            {/* Column 2: In Production & Shipped Samples */}
+            <div className="rounded-2xl border border-slate-200/70 bg-[#F4F5F7] p-4 flex flex-col h-[520px]">
               <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-200/80">
                 <div className="flex items-center space-x-2">
                   <div className="h-2 w-2 rounded-full bg-amber-500" />
-                  <span className="text-xs font-bold text-slate-700 uppercase tracking-wide">Sample In Transit</span>
+                  <span className="text-xs font-bold text-slate-700 uppercase tracking-wide">In Production</span>
                 </div>
                 <span className="rounded-md bg-white border border-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-600">
                   {samplesInTransit.length}
                 </span>
               </div>
 
-              <div className="space-y-3 flex-1">
+              <div className="space-y-3 flex-1 overflow-y-auto -mr-2 pr-2">
                 {samplesInTransit.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center p-6 text-center text-slate-400">
                     <Package className="h-8 w-8 mb-2 stroke-[1.5] text-slate-300" />
-                    <p className="text-xs font-medium text-slate-600">No samples in transit</p>
+                    <p className="text-xs font-medium text-slate-600">No active production deals</p>
                     <p className="text-[11px] text-slate-400 mt-0.5">
-                      Once a brand ships their physical product, the courier tracking number will show here.
+                      Accepted brand briefs and shipped product samples will appear here ready for shooting.
                     </p>
                   </div>
                 ) : (
@@ -473,8 +550,20 @@ export default function CreatorDashboardPage() {
                     >
                       <div className="flex items-start justify-between">
                         <span className="text-xs font-bold text-indigo-600 tracking-tight">{deal.brandName}</span>
-                        <span className="rounded-md bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-700">
-                          Dispatched
+                        <span
+                          className={`rounded-md px-2 py-0.5 text-[11px] font-bold ${
+                            deal.status === 'DRAFT_REVISION_REQUESTED'
+                              ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                              : deal.status === 'CREATOR_ACCEPTED'
+                              ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                              : 'bg-amber-50 text-amber-700 border border-amber-200'
+                          }`}
+                        >
+                          {deal.status === 'DRAFT_REVISION_REQUESTED'
+                            ? 'Revision Needed'
+                            : deal.status === 'CREATOR_ACCEPTED'
+                            ? 'Accepted'
+                            : 'Sample In Transit'}
                         </span>
                       </div>
 
@@ -483,9 +572,16 @@ export default function CreatorDashboardPage() {
                       <div className="mt-3 flex items-center rounded-lg bg-slate-50 border border-slate-200/80 p-2 text-xs text-slate-600">
                         <Truck className="h-3.5 w-3.5 text-indigo-600 mr-2 flex-shrink-0" />
                         <span className="truncate text-[11px] font-mono">
-                          {deal.courierTracking || 'Bluedart: Pending courier update'}
+                          {deal.courierTracking || (deal.status === 'CREATOR_ACCEPTED' ? 'Awaiting sample dispatch' : 'Courier tracking active')}
                         </span>
                       </div>
+
+                      {deal.status === 'DRAFT_REVISION_REQUESTED' && deal.revisionNotes && (
+                        <div className="mt-3 rounded-lg bg-rose-50 border border-rose-200 p-2.5 text-[11px] text-rose-800 leading-relaxed">
+                          <span className="font-semibold block mb-0.5">EVOC Ops feedback:</span>
+                          {deal.revisionNotes}
+                        </div>
+                      )}
 
                       <div className="mt-3">
                         <button
@@ -506,7 +602,7 @@ export default function CreatorDashboardPage() {
             </div>
 
             {/* Column 3: In Review */}
-            <div className="rounded-2xl border border-slate-200/70 bg-[#F4F5F7] p-4 flex flex-col min-h-[460px]">
+            <div className="rounded-2xl border border-slate-200/70 bg-[#F4F5F7] p-4 flex flex-col h-[520px]">
               <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-200/80">
                 <div className="flex items-center space-x-2">
                   <div className="h-2 w-2 rounded-full bg-emerald-500" />
@@ -517,7 +613,7 @@ export default function CreatorDashboardPage() {
                 </span>
               </div>
 
-              <div className="space-y-3 flex-1">
+              <div className="space-y-3 flex-1 overflow-y-auto -mr-2 pr-2">
                 {inReview.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center p-6 text-center text-slate-400">
                     <FileCheck2 className="h-8 w-8 mb-2 stroke-[1.5] text-slate-300" />
@@ -535,7 +631,7 @@ export default function CreatorDashboardPage() {
                       <div className="flex items-start justify-between">
                         <span className="text-xs font-bold text-indigo-600 tracking-tight">{deal.brandName}</span>
                         <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-700">
-                          {deal.status === 'DRAFT_PENDING_EVOC' ? 'EVOC Ops Review' : 'Merchant Approval'}
+                          {deal.status === 'DRAFT_PENDING_EVOC' ? 'EVOC Ops Review' : 'Brand Review'}
                         </span>
                       </div>
 
@@ -551,8 +647,48 @@ export default function CreatorDashboardPage() {
 
                       <div className="mt-2.5 text-[11px] text-slate-400 flex items-center">
                         <ShieldCheck className="h-3 w-3 text-emerald-600 mr-1.5" />
-                        Stage 1 quality vetting in progress
+                        {deal.status === 'DRAFT_PENDING_EVOC'
+                          ? 'Stage 1 quality vetting in progress'
+                          : 'Cleared by EVOC Ops — awaiting brand approval'}
                       </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Column 4: Delivered */}
+            <div className="rounded-2xl border border-slate-200/70 bg-[#F4F5F7] p-4 flex flex-col h-[520px]">
+              <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-200/80">
+                <div className="flex items-center space-x-2">
+                  <div className="h-2 w-2 rounded-full bg-slate-400" />
+                  <span className="text-xs font-bold text-slate-700 uppercase tracking-wide">Delivered</span>
+                </div>
+                <span className="rounded-md bg-white border border-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-600">
+                  {delivered.length}
+                </span>
+              </div>
+
+              <div className="space-y-2 flex-1 overflow-y-auto -mr-2 pr-2">
+                {delivered.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center p-6 text-center text-slate-400">
+                    <CheckCircle2 className="h-8 w-8 mb-2 stroke-[1.5] text-slate-300" />
+                    <p className="text-xs font-medium text-slate-600">No delivered ads yet</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Ads approved by the brand move here. You earn points on every sale they drive.
+                    </p>
+                  </div>
+                ) : (
+                  delivered.map((deal) => (
+                    <div key={deal.id} className="rounded-xl border border-slate-200/90 bg-white px-3.5 py-3 shadow-sm">
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="text-xs font-bold text-indigo-600 tracking-tight truncate">{deal.brandName}</span>
+                        <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600 flex-shrink-0">
+                          {deal.status === 'CAMPAIGN_ACTIVE' ? 'Live' : deal.status === 'COMPLETED' ? 'Completed' : 'Delivered'}
+                        </span>
+                      </div>
+                      <h3 className="mt-1 text-xs font-semibold text-slate-900 truncate">{deal.productName}</h3>
+                      <p className="mt-1 text-[11px] text-slate-400">+{deal.commissionPointsPerSale} pts per sale</p>
                     </div>
                   ))
                 )}
