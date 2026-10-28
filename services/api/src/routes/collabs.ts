@@ -7,7 +7,8 @@ import { CreateCollabBriefSchema } from '@evoc/types';
 import {
   dispatchBriefSubmitted,
   dispatchDraftUploaded,
-  dispatchAssetApproved
+  dispatchAssetApproved,
+  dispatchDraftRevisionRequested
 } from '../queues/dispatcher.js';
 
 export const collabsRouter = Router();
@@ -589,6 +590,15 @@ collabsRouter.patch(
           evocReviewNotes: notes
         }
       });
+
+      if (!approved) {
+        dispatchDraftRevisionRequested({
+          collabId: collab.id,
+          creatorId: collab.creatorId,
+          revisionReason: 'EVOC Quality Control Review',
+          reviewNotes: notes
+        }).catch((err) => console.error('[Queue] dispatchDraftRevisionRequested failed:', err.message));
+      }
 
       res.json({
         message: approved
