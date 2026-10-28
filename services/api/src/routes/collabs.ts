@@ -714,7 +714,7 @@ collabsRouter.get(
         }
       }
 
-      const deliveredStatuses = [
+      const deliveredStatuses: CollabStatus[] = [
         CollabStatus.ASSET_DELIVERED,
         CollabStatus.CAMPAIGN_ACTIVE,
         CollabStatus.COMPLETED
