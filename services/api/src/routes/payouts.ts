@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma, PointsTransactionType, PointsStatus, PayoutStatus, UserRole } from '@evoc/database';
-import { CreatePayoutRequestSchema, AdminClearPayoutSchema, AdminRejectSchema } from '@evoc/types';
+import { CreatePayoutRequestSchema, AdminClearPayoutSchema, AdminRejectSchema, AdminRejectPayoutSchema } from '@evoc/types';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 
 export const payoutsRouter = Router();
@@ -171,49 +171,61 @@ payoutsRouter.get(
 );
 
 // ============================================================================
-// PATCH /api/payouts/:id/clear — EVOC Admin marks payout as CLEARED with UTR
+// Admin Clearance Handler: Handles both PATCH /:id/settle and PATCH /:id/clear
+// Accepts Bank UTR reference as required by Toufeeq's Plan
 // ============================================================================
+const handleAdminClearOrSettle = async (req: any, res: any) => {
+  try {
+    const parsed = AdminClearPayoutSchema.parse(req.body);
+    const { id } = req.params;
+
+    const payout = await prisma.payoutRequest.findUnique({ where: { id } });
+
+    if (!payout) {
+      return res.status(404).json({ error: 'Payout request not found' });
+    }
+
+    if (payout.status !== PayoutStatus.PENDING_UTR) {
+      return res.status(409).json({
+        error: `Cannot clear payout in status: ${payout.status}`
+      });
+    }
+
+    const updated = await prisma.payoutRequest.update({
+      where: { id },
+      data: {
+        status: PayoutStatus.CLEARED,
+        utrNumber: parsed.utrNumber,
+        adminNotes: parsed.adminNotes
+      }
+    });
+
+    console.log(`✅ [Payout] Settled/Cleared payout ${id} with UTR: ${parsed.utrNumber}`);
+
+    res.json({ success: true, payout: updated });
+  } catch (error: any) {
+    if (error.name === 'ZodError') {
+      return res.status(422).json({ error: 'Validation failed', details: error.errors });
+    }
+    console.error('Payout Clear/Settle Error:', error);
+    res.status(500).json({ error: error.message || 'Failed to clear payout' });
+  }
+};
+
+// PATCH /api/payouts/:id/settle — Exact endpoint from Toufeeq's 2-Day Plan
+payoutsRouter.patch(
+  '/:id/settle',
+  requireAuth,
+  requireRole(UserRole.SUPER_ADMIN),
+  handleAdminClearOrSettle
+);
+
+// PATCH /api/payouts/:id/clear — Alias endpoint
 payoutsRouter.patch(
   '/:id/clear',
   requireAuth,
   requireRole(UserRole.SUPER_ADMIN),
-  async (req, res) => {
-    try {
-      const parsed = AdminClearPayoutSchema.parse(req.body);
-      const { id } = req.params;
-
-      const payout = await prisma.payoutRequest.findUnique({ where: { id } });
-
-      if (!payout) {
-        return res.status(404).json({ error: 'Payout request not found' });
-      }
-
-      if (payout.status !== PayoutStatus.PENDING_UTR) {
-        return res.status(409).json({
-          error: `Cannot clear payout in status: ${payout.status}`
-        });
-      }
-
-      const updated = await prisma.payoutRequest.update({
-        where: { id },
-        data: {
-          status: PayoutStatus.CLEARED,
-          utrNumber: parsed.utrNumber,
-          adminNotes: parsed.adminNotes
-        }
-      });
-
-      console.log(`✅ [Payout] Cleared payout ${id} with UTR: ${parsed.utrNumber}`);
-
-      res.json({ success: true, payout: updated });
-    } catch (error: any) {
-      if (error.name === 'ZodError') {
-        return res.status(422).json({ error: 'Validation failed', details: error.errors });
-      }
-      console.error('Payout Clear Error:', error);
-      res.status(500).json({ error: error.message || 'Failed to clear payout' });
-    }
-  }
+  handleAdminClearOrSettle
 );
 
 // ============================================================================

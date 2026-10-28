@@ -9,7 +9,7 @@ dotenv.config();
 import { isRedisAvailable } from './queues/index.js';
 import { startNotificationWorker } from './processors/notification.processor.js';
 import { startAuditWorker } from './processors/audit.processor.js';
-import { startSettlementCron } from './jobs/settlement.cron.js';
+import { startSettlementCron } from './cron/settlePoints.js';
 
 async function main() {
   console.log('🚀 EVOC Worker Service starting...');

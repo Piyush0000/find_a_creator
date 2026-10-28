@@ -148,30 +148,43 @@ async function main() {
   // ── 4. Task 3: Payout Request Engine ───────────────────────────────────────
   section('4. Task 3: Payout Request Engine');
 
-  // Ensure creator has at least 600 settled points for the test to succeed
-  let pointsRecord = await prisma.evocPointsLedger.findFirst({
+  // Accurately calculate creator's net settled points
+  const settledSum = await prisma.evocPointsLedger.aggregate({
     where: {
       creatorId: creatorProfileId,
-      status: PointsStatus.SETTLED
-    }
+      status: PointsStatus.SETTLED,
+      pointsDelta: { gt: 0 }
+    },
+    _sum: { pointsDelta: true }
   });
 
-  if (!pointsRecord) {
-    // Seed test settled ledger entry so payout test can verify successfully
+  const redeemedSum = await prisma.evocPointsLedger.aggregate({
+    where: {
+      creatorId: creatorProfileId,
+      transactionType: PointsTransactionType.PAYOUT_REDEEMED
+    },
+    _sum: { pointsDelta: true }
+  });
+
+  const netSettled = (settledSum._sum.pointsDelta ?? 0) + (redeemedSum._sum.pointsDelta ?? 0);
+
+  // If creator has less than 1000 net settled points, top up so the 500-point withdrawal succeeds
+  if (netSettled < 1000) {
+    const pointsToAdd = 1000;
     await prisma.evocPointsLedger.create({
       data: {
         creatorId: creatorProfileId,
-        pointsDelta: 1000,
+        pointsDelta: pointsToAdd,
         transactionType: PointsTransactionType.PURCHASE_COMMISSION,
         status: PointsStatus.SETTLED,
-        description: 'Test matured points for Day 2 verification'
+        description: 'Matured commission points seeded for Day 2 payout test'
       }
     });
     await prisma.creatorProfile.update({
       where: { id: creatorProfileId },
-      data: { pointsBalance: { increment: 1000 } }
+      data: { pointsBalance: { increment: pointsToAdd } }
     });
-    pass(`Seeded 1000 SETTLED points to verify payout flow`);
+    pass(`Topped up ${pointsToAdd} SETTLED points to guarantee payout test balance (now >= 1000 pts)`);
   }
 
   // 4a. Check creator balance endpoint

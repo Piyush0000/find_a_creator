@@ -29,10 +29,21 @@ const MerchantApprovalSchema = z.object({
   notes: z.string().optional()
 });
 
-const SampleDispatchedSchema = z.object({
-  courierName: z.string().min(2, 'Courier name is required (e.g., BlueDart, Delhivery)'),
-  trackingNumber: z.string().min(3, 'Tracking number is required'),
-  trackingUrl: z.string().url().optional()
+const SampleDispatchedSchema = z
+  .object({
+    courierName: z.string().optional(),
+    courierPartner: z.string().optional(),
+    trackingNumber: z.string().min(3, 'Tracking number is required'),
+    trackingUrl: z.string().url().optional(),
+    estimatedDeliveryDate: z.string().optional()
+  })
+  .refine(
+    (data) => !!(data.courierName || data.courierPartner),
+    { message: 'Courier name/partner is required (e.g., BlueDart, Delhivery)', path: ['courierName'] }
+  );
+
+const DeclineBriefSchema = z.object({
+  reason: z.string().optional()
 });
 
 // ============================================================================
@@ -99,7 +110,8 @@ collabsRouter.post(
 );
 
 // ============================================================================
-// 2. GET /api/collabs/merchant (Sprint Day 1: Merchant Collabs Feed with Stage 1 Video Masking)
+// 2. GET /api/collabs/merchant (Merchant Collabs Feed with Stage 1 Video Masking & Tab Filtering)
+// Supported tab query parameter: ?tab=active|in_review|delivered
 // ============================================================================
 collabsRouter.get(
   '/merchant',
@@ -115,9 +127,39 @@ collabsRouter.get(
         return res.status(404).json({ error: 'Merchant profile not found' });
       }
 
+      const { tab } = req.query;
+      const whereClause: any = { merchantId: merchant.id };
+
+      if (tab === 'active') {
+        whereClause.status = {
+          in: [
+            CollabStatus.BRIEF_SUBMITTED,
+            CollabStatus.EVOC_APPROVED,
+            CollabStatus.CREATOR_ACCEPTED,
+            CollabStatus.SAMPLE_DISPATCHED,
+            CollabStatus.CAMPAIGN_ACTIVE
+          ]
+        };
+      } else if (tab === 'in_review') {
+        whereClause.status = {
+          in: [
+            CollabStatus.DRAFT_PENDING_EVOC,
+            CollabStatus.DRAFT_PENDING_MERCHANT,
+            CollabStatus.DRAFT_REVISION_REQUESTED
+          ]
+        };
+      } else if (tab === 'delivered') {
+        whereClause.status = {
+          in: [
+            CollabStatus.ASSET_DELIVERED,
+            CollabStatus.COMPLETED
+          ]
+        };
+      }
+
       // Query merchant collabs
       const collabs = await prisma.collaborationRequest.findMany({
-        where: { merchantId: merchant.id },
+        where: whereClause,
         include: {
           creator: {
             select: {
@@ -166,6 +208,7 @@ collabsRouter.get(
       res.json({
         success: true,
         count: sanitizedCollabs.length,
+        filterTab: tab || 'all',
         collabs: sanitizedCollabs
       });
     } catch (err: any) {
@@ -175,7 +218,7 @@ collabsRouter.get(
 );
 
 // ============================================================================
-// 3. PATCH /api/collabs/:id/accept (Sprint Day 1: Creator accepts brief)
+// 3. PATCH /api/collabs/:id/accept (Creator accepts brief)
 // ============================================================================
 collabsRouter.patch(
   '/:id/accept',
@@ -228,7 +271,7 @@ collabsRouter.patch(
 );
 
 // ============================================================================
-// 4. PATCH /api/collabs/:id/decline (Sprint Day 1: Creator declines brief)
+// 4. PATCH /api/collabs/:id/decline (Creator declines brief, accepts optional reason)
 // ============================================================================
 collabsRouter.patch(
   '/:id/decline',
@@ -237,6 +280,7 @@ collabsRouter.patch(
   async (req, res) => {
     try {
       const { id } = req.params;
+      const { reason } = DeclineBriefSchema.parse(req.body || {});
 
       const creator = await prisma.creatorProfile.findUnique({
         where: { userId: req.user!.userId }
@@ -274,7 +318,8 @@ collabsRouter.patch(
         success: true,
         message: 'Collaboration declined.',
         status: updated.status,
-        collabId: updated.id
+        collabId: updated.id,
+        reason: reason || null
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Failed to decline collaboration' });
@@ -283,7 +328,7 @@ collabsRouter.patch(
 );
 
 // ============================================================================
-// 5. PATCH /api/collabs/:id/sample-dispatched (Sprint Day 1: Logs courier & tracking)
+// 5. PATCH /api/collabs/:id/sample-dispatched (Takes courierPartner/courierName, trackingNumber, estimatedDeliveryDate)
 // ============================================================================
 collabsRouter.patch(
   '/:id/sample-dispatched',
@@ -292,7 +337,8 @@ collabsRouter.patch(
     try {
       const { id } = req.params;
       const user = req.user!;
-      const { courierName, trackingNumber, trackingUrl } = SampleDispatchedSchema.parse(req.body);
+      const validated = SampleDispatchedSchema.parse(req.body);
+      const courier = (validated.courierName || validated.courierPartner)!;
 
       const collab = await prisma.collaborationRequest.findUnique({ where: { id } });
       if (!collab) {
@@ -323,9 +369,9 @@ collabsRouter.patch(
         where: { id },
         data: {
           status: CollabStatus.SAMPLE_DISPATCHED,
-          courierName,
-          trackingNumber,
-          trackingUrl: trackingUrl || null,
+          courierName: courier,
+          trackingNumber: validated.trackingNumber,
+          trackingUrl: validated.trackingUrl || null,
           sampleDispatchedAt: new Date()
         }
       });
@@ -336,7 +382,8 @@ collabsRouter.patch(
         status: updated.status,
         courierName: updated.courierName,
         trackingNumber: updated.trackingNumber,
-        trackingUrl: updated.trackingUrl
+        trackingUrl: updated.trackingUrl,
+        estimatedDeliveryDate: validated.estimatedDeliveryDate || null
       });
     } catch (err: any) {
       res.status(400).json({ error: err.message || 'Failed to record sample dispatch' });
@@ -629,6 +676,70 @@ collabsRouter.patch(
       });
     } catch (err: any) {
       res.status(400).json({ error: err.message || 'Failed to process merchant approval' });
+    }
+  }
+);
+
+// ============================================================================
+// 10. GET /api/collabs/:id/asset-handoff (Turnkey high-res MP4 download & Meta Ads UTM link)
+// As specified on Page 1 & 3 of Toufeeq's plan
+// ============================================================================
+collabsRouter.get(
+  '/:id/asset-handoff',
+  requireAuth,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const user = req.user!;
+
+      const collab = await prisma.collaborationRequest.findUnique({
+        where: { id },
+        include: { merchant: true, creator: true }
+      });
+
+      if (!collab) {
+        return res.status(404).json({ error: 'Collaboration request not found' });
+      }
+
+      // Must be merchant owner, creator assigned, or super admin
+      if (user.role === UserRole.MERCHANT) {
+        const merchant = await prisma.merchantProfile.findUnique({ where: { userId: user.userId } });
+        if (!merchant || merchant.id !== collab.merchantId) {
+          return res.status(403).json({ error: 'Forbidden: Access restricted to collaboration owner' });
+        }
+      } else if (user.role === UserRole.CREATOR) {
+        const creator = await prisma.creatorProfile.findUnique({ where: { userId: user.userId } });
+        if (!creator || creator.id !== collab.creatorId) {
+          return res.status(403).json({ error: 'Forbidden: You are not assigned to this collaboration' });
+        }
+      }
+
+      const deliveredStatuses = [
+        CollabStatus.ASSET_DELIVERED,
+        CollabStatus.CAMPAIGN_ACTIVE,
+        CollabStatus.COMPLETED
+      ];
+
+      if (!deliveredStatuses.includes(collab.status)) {
+        return res.status(400).json({
+          error: `Asset handoff not available in status '${collab.status}'. Asset must be approved (ASSET_DELIVERED).`
+        });
+      }
+
+      const brandDomain = collab.merchant.brandName.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const metaAdsUtmLink = `https://${brandDomain}.com/p?utm_content=${collab.utmTrackingSlug}&utm_source=meta&utm_medium=ugc_ad`;
+      const downloadableAssetUrl = collab.approvedVideoUrl || collab.draftVideoUrl || `https://assets.evoclabs.com/approved/${collab.id}.mp4`;
+
+      res.json({
+        success: true,
+        collabId: collab.id,
+        status: collab.status,
+        downloadableAssetUrl,
+        metaAdsUtmLink,
+        utmTrackingSlug: collab.utmTrackingSlug
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Failed to fetch asset handoff' });
     }
   }
 );
