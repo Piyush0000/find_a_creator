@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '@evoc/database';
 import { OrderWebhookPayloadSchema } from '@evoc/types';
 import { PointsService } from '../services/points.service.js';
+import { dispatchOrderCommissionCredited } from '../queues/dispatcher.js';
 
 export const webhooksRouter = Router();
 
@@ -57,6 +58,15 @@ webhooksRouter.post('/order-completed', async (req, res) => {
     }
 
     console.log(`⚡ Order Webhook: ${pointsEarned} EVOC Points credited to Creator ${collab.creator.displayAlias}`);
+
+    // Dispatch WhatsApp template alert to Creator
+    dispatchOrderCommissionCredited({
+      collabId: collab.id,
+      creatorId: collab.creatorId,
+      orderId: payload.orderId,
+      pointsEarned,
+      orderTotal: Number(payload.orderTotal)
+    }).catch((err) => console.error('[Queue] dispatchOrderCommissionCredited failed:', err.message));
 
     res.status(200).json({
       success: true,
