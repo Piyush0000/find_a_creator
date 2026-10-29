@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -13,7 +13,7 @@ import {
   Download,
   Truck
 } from 'lucide-react';
-import MerchantNav from '@/components/MerchantNav';
+import { useToast } from '@/components/Toast';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -67,8 +67,29 @@ const STATUS_META: Record<CollabStatus, { label: string; className: string }> = 
   DECLINED: { label: 'Declined', className: 'bg-rose-50 text-rose-700 border-rose-200' }
 };
 
+// Collabs Hub tabs and the statuses each one shows
+type CollabTab = 'active' | 'review' | 'delivered';
+
+const TAB_GROUPS: Record<CollabTab, { label: string; statuses: CollabStatus[] }> = {
+  active: {
+    label: 'Active Briefs',
+    statuses: ['BRIEF_SUBMITTED', 'EVOC_APPROVED', 'CREATOR_ACCEPTED', 'SAMPLE_DISPATCHED', 'DECLINED']
+  },
+  review: {
+    label: 'Under Review',
+    statuses: ['DRAFT_PENDING_EVOC', 'DRAFT_REVISION_REQUESTED', 'DRAFT_PENDING_MERCHANT']
+  },
+  delivered: {
+    label: 'Delivered Assets',
+    statuses: ['ASSET_DELIVERED', 'CAMPAIGN_ACTIVE', 'COMPLETED']
+  }
+};
+
 export default function MerchantCollabsPage() {
   const router = useRouter();
+  const { showToast } = useToast();
+  const [activeTab, setActiveTab] = useState<CollabTab>('active');
+  const hasPickedTab = useRef(false);
   const [token, setToken] = useState<string | null>(null);
   const [collabs, setCollabs] = useState<MerchantCollab[]>([]);
   const [loading, setLoading] = useState(true);
@@ -113,7 +134,17 @@ export default function MerchantCollabsPage() {
       }
 
       const data = await res.json();
-      setCollabs(data.collabs || []);
+      const loaded: MerchantCollab[] = data.collabs || [];
+      setCollabs(loaded);
+
+      // On first load, open the first tab that has collabs in it
+      if (!hasPickedTab.current) {
+        hasPickedTab.current = true;
+        const firstFilled = (Object.keys(TAB_GROUPS) as CollabTab[]).find((tab) =>
+          loaded.some((c) => TAB_GROUPS[tab].statuses.includes(c.status))
+        );
+        if (firstFilled) setActiveTab(firstFilled);
+      }
     } catch (err: any) {
       console.error('Failed to load merchant collabs:', err);
       setApiError('Unable to connect to the server. Please try again.');
@@ -141,13 +172,14 @@ export default function MerchantCollabsPage() {
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        alert(errData.error || 'Failed to approve draft');
+        showToast(errData.error || 'Failed to approve draft', 'error');
         return;
       }
 
+      showToast('Draft approved! Your final ad asset is ready in Delivered Assets.');
       await loadCollabs();
     } catch (err: any) {
-      alert(err.message || 'Network error while approving draft');
+      showToast(err.message || 'Network error while approving draft', 'error');
     } finally {
       setApprovingId(null);
     }
@@ -190,6 +222,7 @@ export default function MerchantCollabsPage() {
       }
 
       setShippingId(null);
+      showToast('Sample shipment recorded. The creator can now see the tracking details.');
       await loadCollabs();
     } catch (err: any) {
       setShippingError(err.message || 'Network error while recording dispatch');
@@ -203,15 +236,15 @@ export default function MerchantCollabsPage() {
     try {
       await navigator.clipboard.writeText(collab.metaAdsUtmLink);
       setCopiedId(collab.id);
+      showToast('Meta Ads UTM link copied to clipboard.');
       setTimeout(() => setCopiedId(null), 2000);
     } catch {
-      // ignore clipboard failures
+      showToast('Could not copy the link. Please copy it manually.', 'error');
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#FBFBFD] antialiased font-sans">
-      <MerchantNav />
+    <div className="text-slate-900 pb-12">
 
       <main className="mx-auto max-w-7xl px-6 py-8 space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -233,7 +266,13 @@ export default function MerchantCollabsPage() {
         {apiError && (
           <div className="rounded-xl border border-rose-200 bg-rose-50/70 p-3 text-xs text-rose-800 flex items-center space-x-2">
             <AlertCircle className="h-4 w-4 text-rose-600 flex-shrink-0" />
-            <span>{apiError}</span>
+            <span className="flex-1">{apiError}</span>
+            <button
+              onClick={loadCollabs}
+              className="rounded-lg border border-rose-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 transition"
+            >
+              Retry
+            </button>
           </div>
         )}
 
@@ -245,20 +284,55 @@ export default function MerchantCollabsPage() {
             <p className="text-xs text-slate-500">No briefs yet. Pick a creator and send your first video ad brief.</p>
             <Link
               href="/creators"
-              className="inline-flex items-center space-x-1.5 rounded-lg bg-slate-900 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 transition"
+              className="inline-flex items-center space-x-1.5 rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 transition"
             >
-              <span>Browse Creator Directory</span>
+              <span>Create Brief</span>
             </Link>
           </div>
         ) : (
-          <div className="space-y-3">
-            {collabs.map((collab) => {
+          <div className="space-y-4">
+            {/* Status Tabs */}
+            <div className="flex flex-wrap gap-1.5 border-b border-slate-200">
+              {(Object.keys(TAB_GROUPS) as CollabTab[]).map((tab) => {
+                const count = collabs.filter((c) => TAB_GROUPS[tab].statuses.includes(c.status)).length;
+                const isActive = activeTab === tab;
+                return (
+                  <button
+                    key={tab}
+                    onClick={() => setActiveTab(tab)}
+                    className={`-mb-px inline-flex items-center space-x-1.5 border-b-2 px-3 py-2 text-xs font-semibold transition ${
+                      isActive
+                        ? 'border-indigo-600 text-indigo-600'
+                        : 'border-transparent text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    <span>{TAB_GROUPS[tab].label}</span>
+                    <span
+                      className={`rounded-full px-1.5 py-0.5 text-[10px] ${
+                        isActive ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-500'
+                      }`}
+                    >
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {collabs.filter((c) => TAB_GROUPS[activeTab].statuses.includes(c.status)).length === 0 && (
+              <div className="p-8 rounded-2xl border border-slate-200/80 bg-white text-center text-xs text-slate-500">
+                Nothing in {TAB_GROUPS[activeTab].label} right now.
+              </div>
+            )}
+
+            <div className="space-y-3">
+            {collabs.filter((c) => TAB_GROUPS[activeTab].statuses.includes(c.status)).map((collab) => {
               const meta = STATUS_META[collab.status] || STATUS_META.BRIEF_SUBMITTED;
               const finalVideo = collab.approvedVideoUrl || collab.draftVideoUrl;
               return (
                 <div
                   key={collab.id}
-                  className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.03)] space-y-4"
+                  className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.03)] space-y-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
                 >
                   <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                     <div>
@@ -308,7 +382,7 @@ export default function MerchantCollabsPage() {
                           <button
                             onClick={() => handleMarkSampleShipped(collab.id)}
                             disabled={isShipping}
-                            className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 transition disabled:opacity-50"
+                            className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 transition disabled:opacity-50"
                           >
                             {isShipping ? 'Saving...' : 'Confirm Shipment'}
                           </button>
@@ -327,7 +401,7 @@ export default function MerchantCollabsPage() {
                         </p>
                         <button
                           onClick={() => openShippingForm(collab.id)}
-                          className="inline-flex items-center space-x-1 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 transition flex-shrink-0"
+                          className="inline-flex items-center space-x-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 transition flex-shrink-0"
                         >
                           <Truck className="h-3.5 w-3.5" />
                           <span>Mark Sample Shipped</span>
@@ -349,7 +423,7 @@ export default function MerchantCollabsPage() {
                     collab.draftStatusNotice && (
                     <div className="flex items-center space-x-2 rounded-xl bg-slate-50 border border-slate-200/80 p-3 text-[11px] text-slate-500">
                       <Lock className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
-                      <span>{collab.draftStatusNotice}</span>
+                      <span>Locked — Under EVOC Ops Quality Check</span>
                     </div>
                   )}
 
@@ -372,7 +446,7 @@ export default function MerchantCollabsPage() {
                         <button
                           onClick={() => handleApproveDraft(collab.id)}
                           disabled={approvingId === collab.id}
-                          className="inline-flex items-center space-x-1 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 transition disabled:opacity-50"
+                          className="inline-flex items-center space-x-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 transition disabled:opacity-50"
                         >
                           <Check className="h-3.5 w-3.5" />
                           <span>{approvingId === collab.id ? 'Approving...' : 'Approve Draft'}</span>
@@ -390,17 +464,18 @@ export default function MerchantCollabsPage() {
                           className="inline-flex items-center space-x-1 rounded-lg border border-emerald-200 bg-white px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50 transition"
                         >
                           <Copy className="h-3.5 w-3.5" />
-                          <span>{copiedId === collab.id ? 'Copied' : 'Copy UTM Link'}</span>
+                          <span>{copiedId === collab.id ? 'Copied' : 'Copy Meta Ads UTM Link'}</span>
                         </button>
                         {finalVideo && (
                           <a
                             href={finalVideo}
+                            download
                             target="_blank"
                             rel="noopener noreferrer"
                             className="inline-flex items-center space-x-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 transition"
                           >
                             <Download className="h-3.5 w-3.5" />
-                            <span>Download Asset</span>
+                            <span>Download MP4</span>
                           </a>
                         )}
                       </div>
@@ -409,6 +484,7 @@ export default function MerchantCollabsPage() {
                 </div>
               );
             })}
+            </div>
           </div>
         )}
       </main>
