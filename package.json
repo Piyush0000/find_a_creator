@@ -15,6 +15,7 @@
     "infra:down": "docker compose -f infra/docker-compose.infra.yml down",
     "docker:all:up": "docker compose -f infra/docker-compose.yml up --build -d",
     "docker:all:down": "docker compose -f infra/docker-compose.yml down",
+    "worker:dev": "pnpm --filter @evoc/worker dev",
     "db:generate": "pnpm --filter @evoc/database db:generate",
     "db:push": "pnpm --filter @evoc/database db:push",
     "db:migrate": "pnpm --filter @evoc/database db:migrate",
@@ -26,7 +27,8 @@
     "test:sprint-day1": "pnpm --filter @evoc/api test:sprint-day1",
     "test:sprint-day2": "pnpm --filter @evoc/api test:sprint-day2",
     "test:r2-upload": "pnpm --filter @evoc/api test:r2-upload",
-    "test:settlement-cron": "pnpm --filter @evoc/api test:settlement-cron"
+    "test:settlement-cron": "pnpm --filter @evoc/api test:settlement-cron",
+    "test:comprehensive-live": "pnpm --filter @evoc/api test:comprehensive-live"
   },
   "devDependencies": {
     "prettier": "^3.3.3",

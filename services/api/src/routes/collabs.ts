@@ -640,7 +640,7 @@ collabsRouter.patch(
 
       // 5. Update Status & Generate Asset Handoff
       const nextStatus = approved ? CollabStatus.ASSET_DELIVERED : CollabStatus.DRAFT_PENDING_MERCHANT;
-      const approvedVideoUrl = approved ? (collab.draftVideoUrl || `https://assets.evoclabs.com/approved/${collab.id}.mp4`) : null;
+      const approvedVideoUrl = approved ? (collab.draftVideoUrl || null) : null;
 
       const updated = await prisma.collaborationRequest.update({
         where: { id },
@@ -728,7 +728,10 @@ collabsRouter.get(
 
       const brandDomain = collab.merchant.brandName.toLowerCase().replace(/[^a-z0-9]/g, '');
       const metaAdsUtmLink = `https://${brandDomain}.com/p?utm_content=${collab.utmTrackingSlug}&utm_source=meta&utm_medium=ugc_ad`;
-      const downloadableAssetUrl = collab.approvedVideoUrl || collab.draftVideoUrl || `https://assets.evoclabs.com/approved/${collab.id}.mp4`;
+      const downloadableAssetUrl = collab.approvedVideoUrl || collab.draftVideoUrl;
+      if (!downloadableAssetUrl) {
+        return res.status(404).json({ error: 'No video asset found for this collaboration' });
+      }
 
       res.json({
         success: true,

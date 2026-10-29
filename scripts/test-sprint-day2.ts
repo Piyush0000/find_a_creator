@@ -20,7 +20,10 @@ import jwt from 'jsonwebtoken';
 import { prisma, UserRole, PointsStatus, PointsTransactionType } from '@evoc/database';
 
 const API = 'http://localhost:4000';
-const jwtSecret = process.env.JWT_SECRET || 'super_secret_jwt_key_evoc_2026';
+if (!process.env.JWT_SECRET) {
+  throw new Error('Missing required environment variable: JWT_SECRET');
+}
+const jwtSecret = process.env.JWT_SECRET;
 
 // ─── Helper ──────────────────────────────────────────────────────────────────
 async function api(

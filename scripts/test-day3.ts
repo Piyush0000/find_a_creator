@@ -29,8 +29,14 @@ async function run() {
     process.exit(1);
   }
 
-  const jwtSecret = process.env.JWT_SECRET || 'super_secret_jwt_key_evoc_2026';
-  const webhookSecret = process.env.CHECKOUT_WEBHOOK_SECRET || 'evoc_secure_webhook_secret_2026';
+  if (!process.env.JWT_SECRET) {
+    throw new Error('Missing required environment variable: JWT_SECRET');
+  }
+  const jwtSecret = process.env.JWT_SECRET;
+  if (!process.env.CHECKOUT_WEBHOOK_SECRET) {
+    throw new Error('Missing required environment variable: CHECKOUT_WEBHOOK_SECRET. Please define it in your .env file.');
+  }
+  const webhookSecret = process.env.CHECKOUT_WEBHOOK_SECRET;
 
   const webhookHeaders: Record<string, string> = {
     'Content-Type': 'application/json',
