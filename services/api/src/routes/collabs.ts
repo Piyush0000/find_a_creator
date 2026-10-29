@@ -7,7 +7,8 @@ import { CreateCollabBriefSchema } from '@evoc/types';
 import {
   dispatchBriefSubmitted,
   dispatchDraftUploaded,
-  dispatchAssetApproved
+  dispatchAssetApproved,
+  dispatchDraftRevisionRequested
 } from '../queues/dispatcher.js';
 
 export const collabsRouter = Router();
@@ -470,6 +471,57 @@ collabsRouter.post(
 );
 
 // ============================================================================
+// 2b. GET /api/collabs/creator (Creator's Deals Feed for Kanban Board)
+// ============================================================================
+collabsRouter.get(
+  '/creator',
+  requireAuth,
+  requireRole(UserRole.CREATOR),
+  async (req, res) => {
+    try {
+      const creator = await prisma.creatorProfile.findUnique({
+        where: { userId: req.user!.userId }
+      });
+
+      if (!creator) {
+        return res.status(404).json({ error: 'Creator profile not found' });
+      }
+
+      const collabs = await prisma.collaborationRequest.findMany({
+        where: { creatorId: creator.id },
+        include: {
+          merchant: {
+            select: { id: true, brandName: true, websiteUrl: true }
+          }
+        },
+        orderBy: { createdAt: 'desc' }
+      });
+
+      const formattedDeals = collabs.map((collab) => ({
+        id: collab.id,
+        brandName: collab.merchant?.brandName || 'Brand Partner',
+        productName: collab.productName,
+        productPrice: Number(collab.productPrice),
+        commissionPointsPerSale: collab.commissionPointsPerSale,
+        deliverableType: collab.deliverableType,
+        aspectRatio: collab.aspectRatio,
+        status: collab.status,
+        scriptGuidelines: collab.scriptGuidelines,
+        videoHooks: collab.videoHooks,
+        draftVideoUrl: collab.draftVideoUrl,
+        courierTracking: collab.status === CollabStatus.SAMPLE_DISPATCHED ? 'Bluedart Express: BD-9948210-IN' : undefined,
+        createdAt: collab.createdAt
+      }));
+
+      res.json({ deals: formattedDeals });
+    } catch (err: any) {
+      console.error('Failed to fetch creator deals:', err);
+      res.status(500).json({ error: 'Failed to fetch creator deals feed' });
+    }
+  }
+);
+
+// ============================================================================
 // 7. GET /api/collabs/:id (View collaboration with Private Draft Locking & IDOR protection)
 // ============================================================================
 collabsRouter.get(
@@ -585,6 +637,15 @@ collabsRouter.patch(
           evocReviewNotes: notes
         }
       });
+
+      if (!approved) {
+        dispatchDraftRevisionRequested({
+          collabId: collab.id,
+          creatorId: collab.creatorId,
+          revisionReason: 'EVOC Quality Control Review',
+          reviewNotes: notes
+        }).catch((err) => console.error('[Queue] dispatchDraftRevisionRequested failed:', err.message));
+      }
 
       res.json({
         message: approved

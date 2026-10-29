@@ -228,3 +228,87 @@ export async function dispatchAssetApproved(payload: {
     console.log(`ℹ️  [Queue] Redis offline or busy (${err.message}). Asset approved successfully.`);
   }
 }
+
+/**
+ * Dispatched when EVOC Admin/QC requests revisions on a draft video.
+ * Fires WhatsApp template 'draft_revision_alert' to the Creator.
+ */
+export async function dispatchDraftRevisionRequested(payload: {
+  collabId: string;
+  creatorId: string;
+  revisionReason?: string;
+  reviewNotes?: string;
+}): Promise<void> {
+  try {
+    const queue = getNotificationQueue();
+
+    await withTimeout(
+      Promise.all([
+        queue.add('notify-creator-draft-revision', {
+          event: 'DRAFT_REVISION_REQUESTED',
+          recipient: 'creator',
+          collabId: payload.collabId,
+          creatorId: payload.creatorId,
+          revisionReason: payload.revisionReason,
+          reviewNotes: payload.reviewNotes,
+          timestamp: new Date().toISOString()
+        }),
+        getAuditQueue().add('audit-draft-revision-requested', {
+          event: 'DRAFT_REVISION_REQUESTED',
+          actorId: 'super_admin',
+          collabId: payload.collabId,
+          timestamp: new Date().toISOString()
+        })
+      ]),
+      2500
+    );
+
+    console.log(`📨 [Queue] dispatchDraftRevisionRequested → collab:${payload.collabId}`);
+  } catch (err: any) {
+    console.log(`ℹ️  [Queue] Redis offline or busy (${err.message}). Revision recorded.`);
+  }
+}
+
+/**
+ * Dispatched when an external Evo Checkout order is attributed to a creator.
+ * Fires WhatsApp template 'creator_sale_commission' to the Creator.
+ */
+export async function dispatchOrderCommissionCredited(payload: {
+  collabId: string;
+  creatorId: string;
+  orderId: string;
+  pointsEarned: number;
+  orderTotal?: number;
+}): Promise<void> {
+  try {
+    const queue = getNotificationQueue();
+
+    await withTimeout(
+      Promise.all([
+        queue.add('notify-creator-commission-credited', {
+          event: 'ORDER_COMMISSION_CREDITED',
+          recipient: 'creator',
+          collabId: payload.collabId,
+          creatorId: payload.creatorId,
+          orderId: payload.orderId,
+          pointsEarned: payload.pointsEarned,
+          orderTotal: payload.orderTotal,
+          timestamp: new Date().toISOString()
+        }),
+        getAuditQueue().add('audit-order-commission-credited', {
+          event: 'ORDER_COMMISSION_CREDITED',
+          actorId: 'system',
+          collabId: payload.collabId,
+          orderId: payload.orderId,
+          pointsEarned: payload.pointsEarned,
+          timestamp: new Date().toISOString()
+        })
+      ]),
+      2500
+    );
+
+    console.log(`📨 [Queue] dispatchOrderCommissionCredited → collab:${payload.collabId} (order:${payload.orderId})`);
+  } catch (err: any) {
+    console.log(`ℹ️  [Queue] Redis offline or busy (${err.message}). Commission credited.`);
+  }
+}
