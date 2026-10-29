@@ -7,10 +7,10 @@ import crypto from 'crypto';
  * Throws an explicit error if the required environment variable is not defined.
  * No dummy fallbacks or placeholder defaults.
  */
-function getRequiredEnv(key: string, alternateKey?: string): string {
-  const val = process.env[key] || (alternateKey ? process.env[alternateKey] : undefined);
+function getRequiredEnv(key: string): string {
+  const val = process.env[key];
   if (!val || val.trim() === '') {
-    throw new Error(`[R2 Service] Missing required environment variable: '${key}'${alternateKey ? ` or '${alternateKey}'` : ''}. Please define it in your .env file.`);
+    throw new Error(`[R2 Service] Missing required environment variable: '${key}'. Please define it in your .env file.`);
   }
   return val.trim();
 }
@@ -20,9 +20,9 @@ function getRequiredEnv(key: string, alternateKey?: string): string {
  * Strictly uses credentials from process.env.
  */
 export function getR2Client(): S3Client {
-  const accountId = getRequiredEnv('R2_ACCOUNT_ID', 'CLOUDFLARE_ACCOUNT_ID');
-  const accessKeyId = getRequiredEnv('R2_ACCESS_KEY_ID', 'R2_ACCESS_KEY');
-  const secretAccessKey = getRequiredEnv('R2_SECRET_ACCESS_KEY', 'R2_SECRET_KEY');
+  const accountId = getRequiredEnv('R2_ACCOUNT_ID');
+  const accessKeyId = getRequiredEnv('R2_ACCESS_KEY_ID');
+  const secretAccessKey = getRequiredEnv('R2_SECRET_ACCESS_KEY');
 
   return new S3Client({
     region: 'auto',

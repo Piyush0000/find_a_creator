@@ -65,3 +65,19 @@ export const AdminRejectPayoutSchema = z.object({
 
 // Export both names to prevent any import breakage
 export const AdminRejectSchema = AdminRejectPayoutSchema;
+
+export const REVIEW_REJECTION_TAGS = [
+  'POOR_AUDIO',
+  'WEAK_HOOK',
+  'OFF_SCRIPT',
+  'PII_LEAK',
+  'BAD_LIGHTING'
+] as const;
+
+export type ReviewRejectionTag = (typeof REVIEW_REJECTION_TAGS)[number];
+
+export const EvocReviewSchema = z.object({
+  approved: z.boolean(),
+  notes: z.string().optional(),
+  rejectionTags: z.array(z.enum(REVIEW_REJECTION_TAGS)).optional()
+});

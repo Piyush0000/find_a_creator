@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prisma, CollabStatus, UserRole } from '@evoc/database';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { antiLeakScan } from '../middleware/antiLeak.js';
-import { CreateCollabBriefSchema } from '@evoc/types';
+import { CreateCollabBriefSchema, EvocReviewSchema, REVIEW_REJECTION_TAGS } from '@evoc/types';
 import {
   dispatchBriefSubmitted,
   dispatchDraftUploaded,
@@ -18,11 +18,6 @@ export const collabsRouter = Router();
 // ============================================================================
 const SubmitDraftSchema = z.object({
   draftVideoUrl: z.string().url('A valid video URL is required')
-});
-
-const EvocReviewSchema = z.object({
-  approved: z.boolean(),
-  notes: z.string().optional()
 });
 
 const MerchantApprovalSchema = z.object({
@@ -48,7 +43,7 @@ const DeclineBriefSchema = z.object({
 });
 
 // ============================================================================
-// 1. POST /api/collabs (Merchant submits a brief with script)
+// 1. POST /api/collabs (Merchant submits a new Video Ad Brief)
 // ============================================================================
 collabsRouter.post(
   '/',
@@ -57,8 +52,9 @@ collabsRouter.post(
   antiLeakScan(['scriptGuidelines', 'videoHooks']),
   async (req, res) => {
     try {
-      const parsed = CreateCollabBriefSchema.parse(req.body);
+      const validated = CreateCollabBriefSchema.parse(req.body);
 
+      // Verify authenticated merchant profile
       const merchant = await prisma.merchantProfile.findUnique({
         where: { userId: req.user!.userId }
       });
@@ -67,52 +63,64 @@ collabsRouter.post(
         return res.status(404).json({ error: 'Merchant profile not found' });
       }
 
-      if (merchant.subscriptionStatus !== 'ACTIVE') {
-        return res.status(403).json({ error: 'Active EVOC subscription required to request creators' });
+      // Verify targeted creator exists
+      const creator = await prisma.creatorProfile.findUnique({
+        where: { id: validated.creatorId }
+      });
+
+      if (!creator) {
+        return res.status(404).json({ error: 'Creator not found' });
       }
 
-      // Generate unique UTM tracking slug for ad attribution
-      const utmSlug = `evoc_cr_${Math.random().toString(36).substring(2, 9)}`;
+      // Generate unique UTM tracking slug
+      const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+      const cleanBrand = merchant.brandName.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const utmTrackingSlug = `evoc_${cleanBrand}_${randomSuffix}`;
 
+      // Create collaboration in BRIEF_SUBMITTED status
       const collab = await prisma.collaborationRequest.create({
         data: {
           merchantId: merchant.id,
-          creatorId: parsed.creatorId,
-          productName: parsed.productName,
-          productLink: parsed.productLink,
-          productPrice: parsed.productPrice,
-          scriptGuidelines: parsed.scriptGuidelines,
-          videoHooks: parsed.videoHooks,
-          aspectRatio: parsed.aspectRatio,
-          deliverableType: parsed.deliverableType,
-          commissionPointsPerSale: parsed.commissionPointsPerSale,
+          creatorId: validated.creatorId,
+          productName: validated.productName,
+          productLink: validated.productLink,
+          productPrice: validated.productPrice,
+          scriptGuidelines: validated.scriptGuidelines,
+          videoHooks: validated.videoHooks,
+          aspectRatio: validated.aspectRatio,
+          deliverableType: validated.deliverableType,
+          commissionPointsPerSale: validated.commissionPointsPerSale,
           status: CollabStatus.BRIEF_SUBMITTED,
-          utmTrackingSlug: utmSlug
+          utmTrackingSlug
         }
       });
 
-      // Dispatch async notifications (fire-and-forget — non-blocking)
+      // Dispatch non-blocking BullMQ notifications
       dispatchBriefSubmitted({
         collabId: collab.id,
+        creatorId: creator.id,
         merchantId: merchant.id,
-        creatorId: parsed.creatorId,
-        productName: parsed.productName
+        productName: collab.productName
       }).catch((err) => console.error('[Queue] dispatchBriefSubmitted failed:', err.message));
 
       res.status(201).json({
-        message: 'Brief submitted! Dual-dispatched to Creator queue and Super Admin moderation.',
+        message: 'Collaboration brief submitted successfully! Dispatched to Creator and EVOC Ops.',
         collabId: collab.id,
-        utmTrackingSlug: utmSlug
+        utmTrackingSlug: collab.utmTrackingSlug,
+        status: collab.status
       });
     } catch (err: any) {
-      res.status(400).json({ error: err.message || 'Validation failed' });
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Validation failed', details: err.flatten().fieldErrors });
+      }
+      res.status(500).json({ error: err.message || 'Failed to create collaboration brief' });
     }
   }
 );
 
 // ============================================================================
-// 2. GET /api/collabs/merchant (Merchant Collabs Feed with Stage 1 Video Masking & Tab Filtering)
-// Supported tab query parameter: ?tab=active|in_review|delivered
+// 2. GET /api/collabs/merchant (Merchant Collaborations Feed with Stage 1 Video Masking)
+// Supports optional query: ?tab=active | in_review | delivered
 // ============================================================================
 collabsRouter.get(
   '/merchant',
@@ -129,6 +137,8 @@ collabsRouter.get(
       }
 
       const { tab } = req.query;
+
+      // Filter mapping based on Tab
       const whereClause: any = { merchantId: merchant.id };
 
       if (tab === 'active') {
@@ -175,14 +185,12 @@ collabsRouter.get(
       });
 
       // Allowed unmasked statuses for Merchant
-      const unlockedStatuses = (
-        [
-          CollabStatus.DRAFT_PENDING_MERCHANT,
-          CollabStatus.ASSET_DELIVERED,
-          CollabStatus.CAMPAIGN_ACTIVE,
-          CollabStatus.COMPLETED
-        ] as CollabStatus[]
-      );
+      const unlockedStatuses: CollabStatus[] = [
+        CollabStatus.DRAFT_PENDING_MERCHANT,
+        CollabStatus.ASSET_DELIVERED,
+        CollabStatus.CAMPAIGN_ACTIVE,
+        CollabStatus.COMPLETED
+      ];
 
       // Mask sensitive draft videos and attach asset handoffs where eligible
       const sanitizedCollabs = collabs.map((collab) => {
@@ -198,7 +206,11 @@ collabsRouter.get(
         }
 
         // Attach pre-formatted Meta Ads UTM campaign link for delivered assets
-        if (collab.status === CollabStatus.ASSET_DELIVERED || collab.status === CollabStatus.CAMPAIGN_ACTIVE || collab.status === CollabStatus.COMPLETED) {
+        if (
+          collab.status === CollabStatus.ASSET_DELIVERED ||
+          collab.status === CollabStatus.CAMPAIGN_ACTIVE ||
+          collab.status === CollabStatus.COMPLETED
+        ) {
           const brandDomain = merchant.brandName.toLowerCase().replace(/[^a-z0-9]/g, '');
           data.metaAdsUtmLink = `https://${brandDomain}.com/p?utm_content=${collab.utmTrackingSlug}&utm_source=meta&utm_medium=ugc_ad`;
         }
@@ -214,6 +226,72 @@ collabsRouter.get(
       });
     } catch (err: any) {
       res.status(500).json({ error: 'Failed to fetch merchant collaborations feed' });
+    }
+  }
+);
+
+// ============================================================================
+// 2B. GET /api/collabs/admin/pending-review (EVOC Ops Review Queue API)
+// Page 2 of Toufeeq's Plan: Super Admin queries all unapproved draft videos (FIFO)
+// ============================================================================
+collabsRouter.get(
+  '/admin/pending-review',
+  requireAuth,
+  requireRole(UserRole.SUPER_ADMIN),
+  async (req, res) => {
+    try {
+      // Queries all collaborations with status DRAFT_PENDING_EVOC (FIFO order)
+      const pendingCollabs = await prisma.collaborationRequest.findMany({
+        where: {
+          status: CollabStatus.DRAFT_PENDING_EVOC
+        },
+        include: {
+          creator: {
+            select: {
+              id: true,
+              displayAlias: true,
+              category: true,
+              contentStyles: true
+            }
+          },
+          merchant: {
+            select: {
+              id: true,
+              brandName: true,
+              websiteUrl: true
+            }
+          }
+        },
+        orderBy: {
+          updatedAt: 'asc' // FIFO: Oldest draft first for rapid EVOC Ops turnaround
+        }
+      });
+
+      const formattedQueue = pendingCollabs.map((collab) => ({
+        id: collab.id,
+        collabId: collab.id,
+        creatorAlias: collab.creator.displayAlias,
+        creatorId: collab.creator.id,
+        creatorCategory: collab.creator.category,
+        productName: collab.productName,
+        productLink: collab.productLink,
+        aspectRatio: collab.aspectRatio,
+        scriptGuidelines: collab.scriptGuidelines,
+        videoHooks: collab.videoHooks,
+        draftVideoUrl: collab.draftVideoUrl, // Private Cloudflare R2 video URL
+        status: collab.status,
+        submittedAt: collab.updatedAt,
+        merchantBrand: collab.merchant.brandName,
+        merchantWebsite: collab.merchant.websiteUrl
+      }));
+
+      res.json({
+        success: true,
+        count: formattedQueue.length,
+        queue: formattedQueue
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Failed to fetch EVOC Ops review queue' });
     }
   }
 );
@@ -428,14 +506,12 @@ collabsRouter.post(
       }
 
       // 4. State Machine Guard: Only allow upload from valid draft states
-      const allowedUploadStates = (
-        [
-          CollabStatus.BRIEF_SUBMITTED,
-          CollabStatus.CREATOR_ACCEPTED,
-          CollabStatus.SAMPLE_DISPATCHED,
-          CollabStatus.DRAFT_REVISION_REQUESTED
-        ] as CollabStatus[]
-      );
+      const allowedUploadStates: CollabStatus[] = [
+        CollabStatus.BRIEF_SUBMITTED,
+        CollabStatus.CREATOR_ACCEPTED,
+        CollabStatus.SAMPLE_DISPATCHED,
+        CollabStatus.DRAFT_REVISION_REQUESTED
+      ];
 
       if (!allowedUploadStates.includes(collab.status)) {
         return res.status(400).json({
@@ -466,57 +542,6 @@ collabsRouter.post(
       });
     } catch (err: any) {
       res.status(400).json({ error: err.message || 'Failed to submit draft' });
-    }
-  }
-);
-
-// ============================================================================
-// 2b. GET /api/collabs/creator (Creator's Deals Feed for Kanban Board)
-// ============================================================================
-collabsRouter.get(
-  '/creator',
-  requireAuth,
-  requireRole(UserRole.CREATOR),
-  async (req, res) => {
-    try {
-      const creator = await prisma.creatorProfile.findUnique({
-        where: { userId: req.user!.userId }
-      });
-
-      if (!creator) {
-        return res.status(404).json({ error: 'Creator profile not found' });
-      }
-
-      const collabs = await prisma.collaborationRequest.findMany({
-        where: { creatorId: creator.id },
-        include: {
-          merchant: {
-            select: { id: true, brandName: true, websiteUrl: true }
-          }
-        },
-        orderBy: { createdAt: 'desc' }
-      });
-
-      const formattedDeals = collabs.map((collab) => ({
-        id: collab.id,
-        brandName: collab.merchant?.brandName || 'Brand Partner',
-        productName: collab.productName,
-        productPrice: Number(collab.productPrice),
-        commissionPointsPerSale: collab.commissionPointsPerSale,
-        deliverableType: collab.deliverableType,
-        aspectRatio: collab.aspectRatio,
-        status: collab.status,
-        scriptGuidelines: collab.scriptGuidelines,
-        videoHooks: collab.videoHooks,
-        draftVideoUrl: collab.draftVideoUrl,
-        courierTracking: collab.status === CollabStatus.SAMPLE_DISPATCHED ? 'Bluedart Express: BD-9948210-IN' : undefined,
-        createdAt: collab.createdAt
-      }));
-
-      res.json({ deals: formattedDeals });
-    } catch (err: any) {
-      console.error('Failed to fetch creator deals:', err);
-      res.status(500).json({ error: 'Failed to fetch creator deals feed' });
     }
   }
 );
@@ -602,7 +627,8 @@ collabsRouter.get(
 );
 
 // ============================================================================
-// 8. PATCH /api/collabs/:id/evoc-review (Stage 1: EVOC Ops approves video draft)
+// 8. PATCH /api/collabs/:id/evoc-review (Stage 1: EVOC Ops approves/rejects video draft)
+// Supports optional structured rejection tags: ['POOR_AUDIO', 'WEAK_HOOK', 'OFF_SCRIPT', 'PII_LEAK', 'BAD_LIGHTING']
 // ============================================================================
 collabsRouter.patch(
   '/:id/evoc-review',
@@ -612,7 +638,7 @@ collabsRouter.patch(
   async (req, res) => {
     try {
       const { id } = req.params;
-      const { approved, notes } = EvocReviewSchema.parse(req.body);
+      const { approved, notes, rejectionTags } = EvocReviewSchema.parse(req.body);
 
       const collab = await prisma.collaborationRequest.findUnique({ where: { id } });
       if (!collab) {
@@ -630,11 +656,18 @@ collabsRouter.patch(
         ? CollabStatus.DRAFT_PENDING_MERCHANT          // Unlocks privately for Merchant review
         : CollabStatus.DRAFT_REVISION_REQUESTED;       // Creator must fix & re-upload
 
+      // If approved: false, format notes with structured tags for creator clarity
+      let reviewNotes = notes?.trim() || '';
+      if (!approved && rejectionTags && rejectionTags.length > 0) {
+        const tagSummary = `[REVISION_TAGS: ${rejectionTags.join(', ')}]`;
+        reviewNotes = reviewNotes ? `${tagSummary} ${reviewNotes}` : tagSummary;
+      }
+
       const updated = await prisma.collaborationRequest.update({
         where: { id },
         data: {
           status: nextStatus,
-          evocReviewNotes: notes
+          evocReviewNotes: reviewNotes || (approved ? 'Approved by EVOC Ops QC' : 'Revisions requested')
         }
       });
 
@@ -642,18 +675,25 @@ collabsRouter.patch(
         dispatchDraftRevisionRequested({
           collabId: collab.id,
           creatorId: collab.creatorId,
-          revisionReason: 'EVOC Quality Control Review',
-          reviewNotes: notes
+          revisionReason: rejectionTags && rejectionTags.length > 0 ? rejectionTags.join(', ') : 'EVOC Quality Control Review',
+          reviewNotes: reviewNotes
         }).catch((err) => console.error('[Queue] dispatchDraftRevisionRequested failed:', err.message));
       }
 
       res.json({
+        success: true,
         message: approved
           ? 'EVOC Quality Review passed! Draft unlocked privately for Merchant review.'
           : 'EVOC Review completed. Changes requested from creator — status set to DRAFT_REVISION_REQUESTED.',
-        status: updated.status
+        status: updated.status,
+        collabId: updated.id,
+        rejectionTags: rejectionTags || [],
+        evocReviewNotes: updated.evocReviewNotes
       });
     } catch (err: any) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Validation failed', details: err.flatten().fieldErrors });
+      }
       res.status(400).json({ error: err.message || 'Failed to update EVOC review status' });
     }
   }

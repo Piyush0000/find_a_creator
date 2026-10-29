@@ -15,10 +15,10 @@ dotenv.config();
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
-function getRequiredEnv(key: string, alternateKey?: string): string {
-  const val = process.env[key] || (alternateKey ? process.env[alternateKey] : undefined);
+function getRequiredEnv(key: string): string {
+  const val = process.env[key];
   if (!val || val.trim() === '') {
-    throw new Error(`[R2 Test] Missing required environment variable: '${key}'${alternateKey ? ` or '${alternateKey}'` : ''}. Please define it in your .env file.`);
+    throw new Error(`[R2 Test] Missing required environment variable: '${key}'. Please define it in your .env file.`);
   }
   return val.trim();
 }
@@ -28,10 +28,10 @@ async function main() {
   console.log('🧪 VERIFYING CLOUDFLARE R2 PRESIGNED UPLOAD SERVICE');
   console.log('======================================================\n');
 
-  // Strict env validation — error if not present in env
-  const accountId = getRequiredEnv('R2_ACCOUNT_ID', 'CLOUDFLARE_ACCOUNT_ID');
-  const accessKeyId = getRequiredEnv('R2_ACCESS_KEY_ID', 'R2_ACCESS_KEY');
-  const secretAccessKey = getRequiredEnv('R2_SECRET_ACCESS_KEY', 'R2_SECRET_KEY');
+  // Exact env validation from .env — error if not present in env
+  const accountId = getRequiredEnv('R2_ACCOUNT_ID');
+  const accessKeyId = getRequiredEnv('R2_ACCESS_KEY_ID');
+  const secretAccessKey = getRequiredEnv('R2_SECRET_ACCESS_KEY');
   const bucketName = getRequiredEnv('R2_BUCKET_NAME');
   const publicDomain = getRequiredEnv('R2_PUBLIC_DOMAIN').replace(/\/$/, '');
 

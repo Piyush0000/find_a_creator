@@ -13,6 +13,7 @@
     "test:r2-upload": "tsx --env-file=../../.env ../../scripts/test-r2-upload.ts",
     "test:settlement-cron": "tsx --env-file=../../.env ../../scripts/test-settlement-cron.ts",
     "test:comprehensive-live": "tsx --env-file=../../.env ../../scripts/test-comprehensive-live.ts",
+    "test:day6": "tsx --env-file=../../.env ../../scripts/test-day6.ts",
     "test:whatsapp": "tsx --env-file=../../.env ../../scripts/test-whatsapp-wapi.ts",
     "build": "tsc",
     "start": "node dist/main.js"
