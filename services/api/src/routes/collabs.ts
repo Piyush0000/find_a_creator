@@ -54,7 +54,7 @@ collabsRouter.post(
   '/',
   requireAuth,
   requireRole(UserRole.MERCHANT),
-  antiLeakScan(['scriptGuidelines', 'videoHooks']),
+  antiLeakScan(['productName', 'scriptGuidelines', 'videoHooks'], ['productLink']),
   async (req, res) => {
     try {
       const parsed = CreateCollabBriefSchema.parse(req.body);
@@ -471,7 +471,7 @@ collabsRouter.post(
 );
 
 // ============================================================================
-// 2b. GET /api/collabs/creator (Creator's Deals Feed for Kanban Board)
+// 2b. GET /api/collabs/creator (Creator Deals Feed for Kanban Board)
 // ============================================================================
 collabsRouter.get(
   '/creator',
@@ -509,7 +509,12 @@ collabsRouter.get(
         scriptGuidelines: collab.scriptGuidelines,
         videoHooks: collab.videoHooks,
         draftVideoUrl: collab.draftVideoUrl,
-        courierTracking: collab.status === CollabStatus.SAMPLE_DISPATCHED ? 'Bluedart Express: BD-9948210-IN' : undefined,
+        // Revision feedback from EVOC Ops is shared only when a re-shoot is requested
+        revisionNotes:
+          collab.status === CollabStatus.DRAFT_REVISION_REQUESTED ? collab.evocReviewNotes : undefined,
+        courierTracking: collab.trackingNumber
+          ? `${collab.courierName ?? 'Courier'}: ${collab.trackingNumber}`
+          : undefined,
         createdAt: collab.createdAt
       }));
 
@@ -517,6 +522,35 @@ collabsRouter.get(
     } catch (err: any) {
       console.error('Failed to fetch creator deals:', err);
       res.status(500).json({ error: 'Failed to fetch creator deals feed' });
+    }
+  }
+);
+
+// ============================================================================
+// 2c. GET /api/collabs/admin (Admin Moderation Queue)
+// ============================================================================
+collabsRouter.get(
+  '/admin',
+  requireAuth,
+  requireRole(UserRole.SUPER_ADMIN),
+  async (req, res) => {
+    try {
+      const collabs = await prisma.collaborationRequest.findMany({
+        include: {
+          merchant: {
+            select: { id: true, brandName: true, websiteUrl: true }
+          },
+          creator: {
+            select: { id: true, displayAlias: true, category: true }
+          }
+        },
+        orderBy: { createdAt: 'desc' }
+      });
+
+      res.json({ collabs });
+    } catch (err: any) {
+      console.error('Failed to fetch admin moderation collabs:', err);
+      res.status(500).json({ error: 'Failed to fetch admin moderation queue' });
     }
   }
 );
