@@ -8,8 +8,18 @@ dotenv.config();
 import jwt from 'jsonwebtoken';
 import { prisma, UserRole, PointsStatus, PointsTransactionType } from '@evoc/database';
 
+function getRequiredEnv(key: string, alternateKey?: string): string {
+  const val = process.env[key] || (alternateKey ? process.env[alternateKey] : undefined);
+  if (!val || val.trim() === '') {
+    throw new Error(`[Comprehensive Test] Missing required environment variable: '${key}'${alternateKey ? ` or '${alternateKey}'` : ''}. Please define it in your .env file.`);
+  }
+  return val.trim();
+}
+
 const API = 'http://localhost:4000';
-const jwtSecret = process.env.JWT_SECRET || 'super_secret_jwt_key_evoc_2026';
+const jwtSecret = getRequiredEnv('JWT_SECRET');
+const r2AccountId = getRequiredEnv('R2_ACCOUNT_ID', 'CLOUDFLARE_ACCOUNT_ID');
+const r2BucketName = getRequiredEnv('R2_BUCKET_NAME');
 
 async function api(
   method: string,
@@ -94,8 +104,8 @@ async function runAllTests() {
   // ── 2. Live Cloudflare R2 Presigned Upload & Real PUT ──────────────────────
   section('2. Live Cloudflare R2 Presigned Upload & Direct Binary PUT');
 
-  console.log(`  Account ID: ${process.env.R2_ACCOUNT_ID ? 'Configured (' + process.env.R2_ACCOUNT_ID.slice(0, 8) + '...)' : 'MISSING'}`);
-  console.log(`  Bucket:     ${process.env.R2_BUCKET_NAME || 'evoc-media-vault'}`);
+  console.log(`  Account ID: ${r2AccountId.slice(0, 8)}...`);
+  console.log(`  Bucket:     ${r2BucketName}`);
 
   // Test 2a: Generate presigned PUT URL
   const presignRes = await api(
@@ -118,15 +128,15 @@ async function runAllTests() {
 
   // Test 2b: Real direct binary PUT into Cloudflare R2
   console.log('  Uploading real test video payload directly to Cloudflare R2...');
-  const dummyVideoBuffer = Buffer.from('EVOC_LABS_LIVE_R2_BINARY_TEST_STREAM_' + Date.now());
+  const testVideoBuffer = Buffer.from('EVOC_LABS_LIVE_R2_BINARY_TEST_STREAM_' + Date.now());
 
   const r2UploadRes = await fetch(uploadUrl, {
     method: 'PUT',
     headers: {
       'Content-Type': 'video/mp4',
-      'Content-Length': String(dummyVideoBuffer.length)
+      'Content-Length': String(testVideoBuffer.length)
     },
-    body: dummyVideoBuffer
+    body: testVideoBuffer
   });
 
   if (!r2UploadRes.ok) {

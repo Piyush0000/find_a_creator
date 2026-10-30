@@ -8,17 +8,31 @@ import {
 
 export const mediaRouter = Router();
 
-const PresignedUrlRequestSchema = z.object({
-  filename: z.string().min(1, 'Filename is required'),
-  contentType: z.enum(['video/mp4', 'video/quicktime'], {
-    errorMap: () => ({ message: 'Unsupported MIME type. Only MP4 and MOV (video/mp4, video/quicktime) are permitted.' })
-  }),
-  fileSizeBytes: z
-    .number()
-    .positive('File size must be positive')
-    .max(MAX_VIDEO_SIZE_BYTES, 'File size exceeds maximum 150MB limit'),
-  folder: z.enum(['drafts', 'portfolio', 'assets']).default('drafts')
-});
+// Schema supports both naming conventions:
+// 1. Plan standard: { fileName, fileType, fileSize }
+// 2. Legacy / alternate: { filename, contentType, fileSizeBytes }
+const PresignedUrlRequestSchema = z
+  .object({
+    fileName: z.string().optional(),
+    filename: z.string().optional(),
+    fileType: z.enum(['video/mp4', 'video/quicktime']).optional(),
+    contentType: z.enum(['video/mp4', 'video/quicktime']).optional(),
+    fileSize: z.number().positive().max(MAX_VIDEO_SIZE_BYTES, 'File size exceeds maximum 150MB limit').optional(),
+    fileSizeBytes: z.number().positive().max(MAX_VIDEO_SIZE_BYTES, 'File size exceeds maximum 150MB limit').optional(),
+    folder: z.enum(['drafts', 'portfolio', 'assets']).default('drafts')
+  })
+  .refine(
+    (data) => !!(data.fileName || data.filename),
+    { message: 'fileName is required', path: ['fileName'] }
+  )
+  .refine(
+    (data) => !!(data.fileType || data.contentType),
+    { message: 'fileType must be video/mp4 or video/quicktime', path: ['fileType'] }
+  )
+  .refine(
+    (data) => !!(data.fileSize || data.fileSizeBytes),
+    { message: 'fileSize is required (max 150MB)', path: ['fileSize'] }
+  );
 
 // POST /api/media/presigned-url
 // Generates a 15-minute S3-compatible Cloudflare R2 PUT URL for direct browser upload
@@ -29,17 +43,21 @@ mediaRouter.post(
     try {
       const validated = PresignedUrlRequestSchema.parse(req.body);
 
+      const targetFileName = (validated.fileName || validated.filename)!;
+      const targetFileType = (validated.fileType || validated.contentType)!;
+      const targetFileSize = (validated.fileSize || validated.fileSizeBytes)!;
+
       const result = await generateR2PresignedUrl({
-        filename: validated.filename,
-        contentType: validated.contentType,
-        fileSizeBytes: validated.fileSizeBytes,
+        filename: targetFileName,
+        contentType: targetFileType,
+        fileSizeBytes: targetFileSize,
         folder: validated.folder,
         expiresInSeconds: 900 // 15-minute expiration
       });
 
+      // Strict return signature as specified in Toufeeq's plan: { uploadUrl, publicUrl, key }
       res.status(200).json({
         success: true,
-        message: 'Presigned R2 upload URL generated successfully (valid for 15 minutes).',
         uploadUrl: result.uploadUrl,
         publicUrl: result.publicUrl,
         key: result.key,

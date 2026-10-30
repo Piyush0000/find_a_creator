@@ -1,6 +1,19 @@
+import path from 'path';
+import dotenv from 'dotenv';
 import IORedis from 'ioredis';
 
-const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+// Ensure .env is loaded if this file is imported first
+dotenv.config({ path: path.resolve(process.cwd(), '../../.env') });
+dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+dotenv.config();
+
+export function getRedisUrl(): string {
+  const url = process.env.REDIS_URL;
+  if (!url || url.trim() === '') {
+    throw new Error('[Worker] Missing required environment variable: REDIS_URL. Please define it in your .env file.');
+  }
+  return url.trim();
+}
 
 let sharedConnection: IORedis | null = null;
 
@@ -8,6 +21,7 @@ let sharedConnection: IORedis | null = null;
  * Checks if Redis server is reachable with a quick ping.
  */
 export async function isRedisAvailable(): Promise<boolean> {
+  const redisUrl = getRedisUrl();
   const testConn = new IORedis(redisUrl, {
     connectTimeout: 2000,
     maxRetriesPerRequest: 1,
@@ -31,6 +45,7 @@ export async function isRedisAvailable(): Promise<boolean> {
  * BullMQ requires maxRetriesPerRequest: null.
  */
 export function createWorkerConnection(): IORedis {
+  const redisUrl = getRedisUrl();
   const conn = new IORedis(redisUrl, {
     maxRetriesPerRequest: null,
     enableReadyCheck: false,
@@ -53,6 +68,7 @@ export function createWorkerConnection(): IORedis {
 
 export function getSharedConnection(): IORedis {
   if (!sharedConnection) {
+    const redisUrl = getRedisUrl();
     sharedConnection = new IORedis(redisUrl, {
       maxRetriesPerRequest: null,
       enableReadyCheck: false,
@@ -68,5 +84,6 @@ export function getSharedConnection(): IORedis {
       }
     });
   }
+
   return sharedConnection;
 }

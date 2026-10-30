@@ -10,6 +10,9 @@
     "test:day3": "tsx --env-file=../../.env ../../scripts/test-day3.ts",
     "test:sprint-day1": "tsx --env-file=../../.env ../../scripts/test-sprint-day1.ts",
     "test:sprint-day2": "tsx --env-file=../../.env ../../scripts/test-sprint-day2.ts",
+    "test:r2-upload": "tsx --env-file=../../.env ../../scripts/test-r2-upload.ts",
+    "test:settlement-cron": "tsx --env-file=../../.env ../../scripts/test-settlement-cron.ts",
+    "test:comprehensive-live": "tsx --env-file=../../.env ../../scripts/test-comprehensive-live.ts",
     "test:whatsapp": "tsx --env-file=../../.env ../../scripts/test-whatsapp-wapi.ts",
     "build": "tsc",
     "start": "node dist/main.js"

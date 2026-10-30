@@ -41,20 +41,21 @@ export const OrderWebhookPayloadSchema = z.object({
   createdAt: z.string()
 });
 
-export const UPI_VPA_REGEX = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9]+$/;
+// Exact regex from Toufeeq's Plan: /^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$/
+export const UPI_VPA_REGEX = /^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$/;
 
 export const CreatePayoutRequestSchema = z.object({
   upiVpa: z
     .string()
-    .regex(UPI_VPA_REGEX, 'Invalid UPI VPA format (e.g. name@okhdfcbank)'),
+    .regex(UPI_VPA_REGEX, 'Invalid Indian UPI ID format (e.g. name@okhdfcbank)'),
   pointsToRedeem: z
     .number()
     .int('Points must be a whole number')
-    .min(500, 'Minimum payout is 500 points')
+    .min(500, 'Minimum withdrawal threshold is 500 points (₹500)')
 });
 
 export const AdminClearPayoutSchema = z.object({
-  utrNumber: z.string().min(6, 'UTR number is required'),
+  utrNumber: z.string().min(6, 'Bank UTR reference is required'),
   adminNotes: z.string().optional()
 });
 

@@ -11,11 +11,13 @@ webhooksRouter.post('/order-completed', async (req, res) => {
   try {
     // Recommendation 1: Webhook Secret Authentication Gate
     const configuredSecret = process.env.CHECKOUT_WEBHOOK_SECRET;
-    if (configuredSecret) {
-      const incomingSecret = req.headers['x-webhook-secret'];
-      if (!incomingSecret || incomingSecret !== configuredSecret) {
-        return res.status(401).json({ error: 'Unauthorized: Invalid or missing webhook signature' });
-      }
+    if (!configuredSecret) {
+      return res.status(500).json({ error: 'Server misconfiguration: CHECKOUT_WEBHOOK_SECRET is not configured in .env' });
+    }
+
+    const incomingSecret = req.headers['x-webhook-secret'];
+    if (!incomingSecret || incomingSecret !== configuredSecret) {
+      return res.status(401).json({ error: 'Unauthorized: Invalid or missing webhook signature' });
     }
 
     const payload = OrderWebhookPayloadSchema.parse(req.body);
@@ -49,11 +51,11 @@ webhooksRouter.post('/order-completed', async (req, res) => {
     });
 
     if (result.duplicate) {
-      console.log(`⚠️ Order Webhook duplicate ignored: Order #${payload.orderId} already credited`);
       return res.status(200).json({
         received: true,
         duplicate: true,
-        note: `Order #${payload.orderId} was already attributed`
+        message: 'Order attribution already processed (idempotent duplicate skipped)',
+        orderId: payload.orderId
       });
     }
 
@@ -70,12 +72,14 @@ webhooksRouter.post('/order-completed', async (req, res) => {
 
     res.status(200).json({
       success: true,
-      pointsCredited: pointsEarned,
+      collabId: collab.id,
       creatorId: collab.creatorId,
-      newBalance: result.newBalance
+      orderId: payload.orderId,
+      pointsEarned,
+      pointsStatus: 'LOCKED',
+      unlockNotice: 'Points locked for 14-day return window'
     });
-  } catch (error: any) {
-    console.error('Webhook Error:', error);
-    res.status(400).json({ error: error.message || 'Webhook processing failed' });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Webhook processing failed' });
   }
 });

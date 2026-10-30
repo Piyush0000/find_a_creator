@@ -4,13 +4,19 @@ import IORedis from 'ioredis';
 // ---------------------------------------------------------------------------
 // Redis Connection (shared across all queues)
 // ---------------------------------------------------------------------------
-const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+function getRedisUrl(): string {
+  const url = process.env.REDIS_URL;
+  if (!url || url.trim() === '') {
+    throw new Error('[Dispatcher] Missing required environment variable: REDIS_URL. Please define it in your .env file.');
+  }
+  return url.trim();
+}
 
 let connection: IORedis | null = null;
 
 function getRedisConnection(): IORedis {
   if (!connection) {
-    connection = new IORedis(redisUrl, {
+    connection = new IORedis(getRedisUrl(), {
       maxRetriesPerRequest: null, // Required by BullMQ
       enableReadyCheck: false,
       connectTimeout: 3000,
