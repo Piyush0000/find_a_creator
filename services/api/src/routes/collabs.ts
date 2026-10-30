@@ -8,7 +8,9 @@ import {
   dispatchBriefSubmitted,
   dispatchDraftUploaded,
   dispatchAssetApproved,
-  dispatchDraftRevisionRequested
+  dispatchDraftRevisionRequested,
+  dispatchCreatorAccepted,
+  dispatchBriefDeclined
 } from '../queues/dispatcher.js';
 
 export const collabsRouter = Router();
@@ -232,7 +234,7 @@ collabsRouter.get(
 
 // ============================================================================
 // 2B. GET /api/collabs/admin/pending-review (EVOC Ops Review Queue API)
-// Page 2 of Toufeeq's Plan: Super Admin queries all unapproved draft videos (FIFO)
+// Super Admin queries all unapproved draft videos (FIFO)
 // ============================================================================
 collabsRouter.get(
   '/admin/pending-review',
@@ -297,6 +299,86 @@ collabsRouter.get(
 );
 
 // ============================================================================
+// 2C. GET /api/collabs/creator (Creator Deals Kanban Feed)
+// Queries all collaborations assigned to the authenticated creator.
+// Uses composite index @@index([creatorId, status]) for high performance.
+// ============================================================================
+collabsRouter.get(
+  '/creator',
+  requireAuth,
+  requireRole(UserRole.CREATOR),
+  async (req, res) => {
+    try {
+      const creator = await prisma.creatorProfile.findUnique({
+        where: { userId: req.user!.userId }
+      });
+
+      if (!creator) {
+        return res.status(404).json({ error: 'Creator profile not found' });
+      }
+
+      const { status } = req.query;
+      const whereClause: any = { creatorId: creator.id };
+      if (status && typeof status === 'string') {
+        whereClause.status = status as CollabStatus;
+      }
+
+      const collabs = await prisma.collaborationRequest.findMany({
+        where: whereClause,
+        include: {
+          merchant: {
+            select: {
+              id: true,
+              brandName: true,
+              websiteUrl: true
+            }
+          }
+        },
+        orderBy: { updatedAt: 'desc' }
+      });
+
+      const deals = collabs.map((collab) => ({
+        id: collab.id,
+        collabId: collab.id,
+        brandName: collab.merchant.brandName,
+        merchantWebsite: collab.merchant.websiteUrl,
+        productName: collab.productName,
+        productLink: collab.productLink,
+        productPrice: Number(collab.productPrice),
+        commissionPointsPerSale: collab.commissionPointsPerSale,
+        deliverableType: collab.deliverableType,
+        aspectRatio: collab.aspectRatio,
+        status: collab.status,
+        scriptGuidelines: collab.scriptGuidelines,
+        videoHooks: collab.videoHooks,
+        courierTracking: collab.trackingNumber
+          ? `${collab.courierName || 'Courier'} - ${collab.trackingNumber}`
+          : undefined,
+        courierName: collab.courierName,
+        trackingNumber: collab.trackingNumber,
+        trackingUrl: collab.trackingUrl,
+        sampleDispatchedAt: collab.sampleDispatchedAt,
+        draftVideoUrl: collab.draftVideoUrl,
+        evocReviewNotes: collab.evocReviewNotes,
+        merchantReviewNotes: collab.merchantReviewNotes,
+        approvedVideoUrl: collab.approvedVideoUrl,
+        utmTrackingSlug: collab.utmTrackingSlug,
+        createdAt: collab.createdAt,
+        updatedAt: collab.updatedAt
+      }));
+
+      res.json({
+        success: true,
+        count: deals.length,
+        deals
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Failed to fetch creator deals feed' });
+    }
+  }
+);
+
+// ============================================================================
 // 3. PATCH /api/collabs/:id/accept (Creator accepts brief)
 // ============================================================================
 collabsRouter.patch(
@@ -336,6 +418,14 @@ collabsRouter.patch(
         where: { id },
         data: { status: CollabStatus.CREATOR_ACCEPTED }
       });
+
+      // Dispatch non-blocking notification
+      dispatchCreatorAccepted({
+        collabId: updated.id,
+        creatorId: creator.id,
+        merchantId: collab.merchantId,
+        productName: collab.productName
+      }).catch((err) => console.error('[Queue] dispatchCreatorAccepted failed:', err.message));
 
       res.json({
         success: true,
@@ -392,6 +482,14 @@ collabsRouter.patch(
         where: { id },
         data: { status: CollabStatus.DECLINED }
       });
+
+      // Dispatch non-blocking notification
+      dispatchBriefDeclined({
+        collabId: updated.id,
+        creatorId: creator.id,
+        merchantId: collab.merchantId,
+        reason: reason || undefined
+      }).catch((err) => console.error('[Queue] dispatchBriefDeclined failed:', err.message));
 
       res.json({
         success: true,
@@ -783,7 +881,6 @@ collabsRouter.patch(
 
 // ============================================================================
 // 10. GET /api/collabs/:id/asset-handoff (Turnkey high-res MP4 download & Meta Ads UTM link)
-// As specified on Page 1 & 3 of Toufeeq's plan
 // ============================================================================
 collabsRouter.get(
   '/:id/asset-handoff',

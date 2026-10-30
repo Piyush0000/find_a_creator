@@ -312,3 +312,82 @@ export async function dispatchOrderCommissionCredited(payload: {
     console.log(`ℹ️  [Queue] Redis offline or busy (${err.message}). Commission credited.`);
   }
 }
+
+
+/**
+ * Dispatched when a Creator accepts a brief.
+ * Notifies: Merchant (creator accepted) + Ops + Audit trail.
+ */
+export async function dispatchCreatorAccepted(payload: {
+  collabId: string;
+  creatorId: string;
+  merchantId: string;
+  productName: string;
+}): Promise<void> {
+  try {
+    const queue = getNotificationQueue();
+
+    await withTimeout(
+      Promise.all([
+        queue.add('notify-merchant-creator-accepted', {
+          event: 'CREATOR_ACCEPTED',
+          recipient: 'merchant',
+          merchantId: payload.merchantId,
+          collabId: payload.collabId,
+          productName: payload.productName,
+          timestamp: new Date().toISOString()
+        }),
+        getAuditQueue().add('audit-creator-accepted', {
+          event: 'CREATOR_ACCEPTED',
+          actorId: payload.creatorId,
+          collabId: payload.collabId,
+          timestamp: new Date().toISOString()
+        })
+      ]),
+      2500
+    );
+
+    console.log(`📨 [Queue] dispatchCreatorAccepted → collab:${payload.collabId}`);
+  } catch (err: any) {
+    console.log(`ℹ️  [Queue] Redis offline or busy (${err.message}). Collab accepted.`);
+  }
+}
+
+/**
+ * Dispatched when a Creator declines a brief.
+ * Notifies: Merchant (brief declined) + Ops + Audit trail.
+ */
+export async function dispatchBriefDeclined(payload: {
+  collabId: string;
+  creatorId: string;
+  merchantId: string;
+  reason?: string;
+}): Promise<void> {
+  try {
+    const queue = getNotificationQueue();
+
+    await withTimeout(
+      Promise.all([
+        queue.add('notify-merchant-brief-declined', {
+          event: 'BRIEF_DECLINED',
+          recipient: 'merchant',
+          merchantId: payload.merchantId,
+          collabId: payload.collabId,
+          reason: payload.reason,
+          timestamp: new Date().toISOString()
+        }),
+        getAuditQueue().add('audit-brief-declined', {
+          event: 'BRIEF_DECLINED',
+          actorId: payload.creatorId,
+          collabId: payload.collabId,
+          timestamp: new Date().toISOString()
+        })
+      ]),
+      2500
+    );
+
+    console.log(`📨 [Queue] dispatchBriefDeclined → collab:${payload.collabId}`);
+  } catch (err: any) {
+    console.log(`ℹ️  [Queue] Redis offline or busy (${err.message}). Collab declined.`);
+  }
+}

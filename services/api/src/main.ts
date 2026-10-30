@@ -24,6 +24,7 @@ import { webhooksRouter } from './routes/webhooks.js';
 import { mediaRouter } from './routes/media.js';
 import { payoutsRouter } from './routes/payouts.js';
 import { adminRouter } from './routes/admin.js';
+import { authLimiter } from './middleware/rateLimiter.js';
 
 export const app = express();
 const PORT = process.env.PORT || 4000;
@@ -39,7 +40,7 @@ app.get('/healthz', (req, res) => {
 });
 
 // Register Domain Routes
-app.use('/api/auth', authRouter);
+app.use('/api/auth', authLimiter, authRouter);
 app.use('/api/creators', creatorsRouter);
 app.use('/api/collabs', collabsRouter);
 app.use('/api/webhooks', webhooksRouter);
