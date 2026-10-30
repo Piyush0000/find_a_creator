@@ -135,7 +135,9 @@ async function runDay6Tests() {
   pass(`Creator accepted collab`);
 
   // Creator uploads draft video to Cloudflare R2
-  const sampleR2VideoUrl = 'https://evoc-creator-media.6898dfa6bb22c75619826c57138f90a0.r2.cloudflarestorage.com/drafts/test-review-queue.mp4';
+  const r2Domain = process.env.R2_PUBLIC_DOMAIN ||
+    `https://${process.env.R2_BUCKET_NAME}.${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`;
+  const sampleR2VideoUrl = `${r2Domain.replace(/\/$/, '')}/drafts/test-review-queue-${Date.now()}.mp4`;
   const draftRes = await api(
     'POST',
     `/api/collabs/${collabId}/draft`,
