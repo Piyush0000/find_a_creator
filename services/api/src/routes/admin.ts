@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prisma, PointsStatus, UserRole } from '@evoc/database';
 import { requireAuth, requireRole } from '../middleware/auth.js';
+import { SecurityFlagsService } from '../services/securityFlags.service.js';
 
 export const adminRouter = Router();
 
@@ -91,6 +92,27 @@ adminRouter.get(
     } catch (error: any) {
       console.error('Admin payouts list error:', error);
       res.status(500).json({ error: error.message || 'Failed to list payouts' });
+    }
+  }
+);
+
+// ============================================================================
+// GET /api/admin/security-flags — Security Flag Queue (blocked contact leaks)
+// ============================================================================
+adminRouter.get(
+  '/security-flags',
+  requireAuth,
+  requireRole(UserRole.SUPER_ADMIN),
+  async (req, res) => {
+    try {
+      const rawLimit = parseInt(String(req.query.limit), 10);
+      const limit = !Number.isNaN(rawLimit) ? rawLimit : 100;
+
+      const flags = SecurityFlagsService.list(limit);
+      res.json({ flags, totalCount: SecurityFlagsService.count() });
+    } catch (error: any) {
+      console.error('Security flags list error:', error);
+      res.status(500).json({ error: error.message || 'Failed to list security flags' });
     }
   }
 );

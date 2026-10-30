@@ -51,7 +51,7 @@ collabsRouter.post(
   '/',
   requireAuth,
   requireRole(UserRole.MERCHANT),
-  antiLeakScan(['scriptGuidelines', 'videoHooks']),
+  antiLeakScan(['productName', 'scriptGuidelines', 'videoHooks'], ['productLink']),
   async (req, res) => {
     try {
       const validated = CreateCollabBriefSchema.parse(req.body);
@@ -640,6 +640,91 @@ collabsRouter.post(
       });
     } catch (err: any) {
       res.status(400).json({ error: err.message || 'Failed to submit draft' });
+    }
+  }
+);
+
+// ============================================================================
+// 2b. GET /api/collabs/creator (Creator Deals Feed for Kanban Board)
+// ============================================================================
+collabsRouter.get(
+  '/creator',
+  requireAuth,
+  requireRole(UserRole.CREATOR),
+  async (req, res) => {
+    try {
+      const creator = await prisma.creatorProfile.findUnique({
+        where: { userId: req.user!.userId }
+      });
+
+      if (!creator) {
+        return res.status(404).json({ error: 'Creator profile not found' });
+      }
+
+      const collabs = await prisma.collaborationRequest.findMany({
+        where: { creatorId: creator.id },
+        include: {
+          merchant: {
+            select: { id: true, brandName: true, websiteUrl: true }
+          }
+        },
+        orderBy: { createdAt: 'desc' }
+      });
+
+      const formattedDeals = collabs.map((collab) => ({
+        id: collab.id,
+        brandName: collab.merchant?.brandName || 'Brand Partner',
+        productName: collab.productName,
+        productPrice: Number(collab.productPrice),
+        commissionPointsPerSale: collab.commissionPointsPerSale,
+        deliverableType: collab.deliverableType,
+        aspectRatio: collab.aspectRatio,
+        status: collab.status,
+        scriptGuidelines: collab.scriptGuidelines,
+        videoHooks: collab.videoHooks,
+        draftVideoUrl: collab.draftVideoUrl,
+        // Revision feedback from EVOC Ops is shared only when a re-shoot is requested
+        revisionNotes:
+          collab.status === CollabStatus.DRAFT_REVISION_REQUESTED ? collab.evocReviewNotes : undefined,
+        courierTracking: collab.trackingNumber
+          ? `${collab.courierName ?? 'Courier'}: ${collab.trackingNumber}`
+          : undefined,
+        createdAt: collab.createdAt
+      }));
+
+      res.json({ deals: formattedDeals });
+    } catch (err: any) {
+      console.error('Failed to fetch creator deals:', err);
+      res.status(500).json({ error: 'Failed to fetch creator deals feed' });
+    }
+  }
+);
+
+// ============================================================================
+// 2c. GET /api/collabs/admin (Admin Moderation Queue)
+// ============================================================================
+collabsRouter.get(
+  '/admin',
+  requireAuth,
+  requireRole(UserRole.SUPER_ADMIN),
+  async (req, res) => {
+    try {
+      const collabs = await prisma.collaborationRequest.findMany({
+        include: {
+          merchant: {
+            select: { id: true, brandName: true, websiteUrl: true }
+          },
+          creator: {
+            select: { id: true, displayAlias: true, category: true }
+          }
+        },
+        orderBy: { createdAt: 'desc' }
+      });
+
+      res.json({ collabs });
+    } catch (err: any) {
+      console.error('Failed to fetch admin moderation collabs:', err);
+      res.status(500).json({ error: 'Failed to fetch admin moderation queue' });
     }
   }
 );

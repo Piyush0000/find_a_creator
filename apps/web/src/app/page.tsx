@@ -14,6 +14,15 @@ export default function HomePage() {
           Connect D2C brands with vetted UGC video ad creators. Zero direct cash transfer, masked contact privacy, 2-stage review gate, and UTM-driven EVOC Points.
         </p>
 
+        <div className="mt-6 flex justify-center">
+          <Link
+            href="/login"
+            className="inline-flex items-center space-x-1.5 rounded-xl bg-indigo-600 px-5 py-2.5 text-xs font-semibold text-white hover:bg-indigo-700 shadow-sm transition"
+          >
+            <span>Sign In to Account</span>
+          </Link>
+        </div>
+
         <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
           <Link
             href="/creators"

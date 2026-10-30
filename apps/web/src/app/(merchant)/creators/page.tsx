@@ -9,7 +9,6 @@ import {
   Star,
   Check,
   Film,
-  Plus,
   AlertCircle,
   RefreshCw
 } from 'lucide-react';
@@ -124,42 +123,11 @@ export default function CreatorsDirectoryPage() {
   }, [creators, selectedCategories]);
 
   return (
-    <div className="min-h-screen bg-[#FBFBFD] text-slate-900 font-sans antialiased pb-20">
-      {/* Top Navbar */}
-      <header className="border-b border-slate-200/80 bg-white/80 backdrop-blur-md sticky top-0 z-30">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3.5">
-          <div className="flex items-center space-x-3.5">
-            <Link
-              href="/"
-              className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-900 text-white font-bold text-sm tracking-tight shadow-sm"
-            >
-              E
-            </Link>
-            <span className="font-semibold text-sm text-slate-900">EVOC Labs</span>
-          </div>
-
-          <div className="flex items-center space-x-3">
-            <Link
-              href="/dashboard"
-              className="text-xs font-medium text-slate-500 hover:text-slate-900 transition px-3 py-1.5 rounded-lg hover:bg-slate-100"
-            >
-              Creator Workspace
-            </Link>
-
-            <Link
-              href="/brief"
-              className="inline-flex items-center space-x-1.5 rounded-lg bg-slate-900 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-slate-800 transition"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              <span>Create Brief</span>
-            </Link>
-          </div>
-        </div>
-      </header>
+    <div className="text-slate-900 pb-12">
 
       {/* Directory Header */}
       <div className="border-b border-slate-200/70 bg-white">
-        <div className="mx-auto max-w-7xl px-6 py-8">
+        <div className="mx-auto max-w-7xl px-6 py-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-slate-900">
@@ -172,8 +140,8 @@ export default function CreatorsDirectoryPage() {
           </div>
 
           {/* Search Bar & Category Pills */}
-          <div className="mt-6 space-y-3.5">
-            <div className="relative max-w-xl">
+          <div className="mt-5 flex flex-col lg:flex-row lg:items-center gap-3.5 lg:gap-4">
+            <div className="relative w-full lg:w-96 lg:flex-shrink-0">
               <Search className="absolute left-3.5 top-3 h-4 w-4 text-slate-400" />
               <input
                 type="text"
@@ -193,7 +161,7 @@ export default function CreatorsDirectoryPage() {
             </div>
 
             {/* Category Pills */}
-            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+            <div className="flex flex-wrap items-center gap-1.5">
               {CATEGORIES.map((cat) => {
                 const isActive = selectedCategories.includes(cat);
                 return (
@@ -202,7 +170,7 @@ export default function CreatorsDirectoryPage() {
                     onClick={() => toggleCategory(cat)}
                     className={`inline-flex items-center rounded-lg px-3 py-1 text-xs font-medium transition ${
                       isActive
-                        ? 'bg-slate-900 text-white shadow-sm'
+                        ? 'bg-indigo-600 text-white shadow-sm'
                         : 'bg-white text-slate-600 border border-slate-200 hover:border-slate-300 hover:bg-slate-50'
                     }`}
                   >
@@ -217,7 +185,7 @@ export default function CreatorsDirectoryPage() {
       </div>
 
       {/* Main Grid Content */}
-      <main className="mx-auto max-w-7xl px-6 py-8">
+      <main className="mx-auto max-w-7xl px-6 py-6">
         {/* Backend Connection Error State */}
         {apiError ? (
           <div className="rounded-2xl border border-rose-200 bg-rose-50/60 p-8 text-center max-w-lg mx-auto shadow-sm">
@@ -228,7 +196,7 @@ export default function CreatorsDirectoryPage() {
             <p className="text-xs text-rose-700 mt-1 leading-relaxed">{apiError}</p>
             <button
               onClick={() => loadCreators()}
-              className="mt-4 inline-flex items-center rounded-lg bg-slate-900 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 transition"
+              className="mt-4 inline-flex items-center rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 transition"
             >
               <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
               Retry
@@ -236,16 +204,16 @@ export default function CreatorsDirectoryPage() {
           </div>
         ) : (
           <>
-            <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center justify-between mb-4">
               <p className="text-xs font-medium text-slate-400">
                 {filteredCreators.length} {filteredCreators.length === 1 ? 'creator' : 'creators'} available
               </p>
             </div>
 
             {loading ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {[1, 2, 3].map((n) => (
-                  <div key={n} className="rounded-2xl border border-slate-200/80 bg-white p-5 animate-pulse h-96" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+                {[1, 2, 3, 4].map((n) => (
+                  <div key={n} className="rounded-2xl border border-slate-200/80 bg-white p-5 animate-pulse h-80" />
                 ))}
               </div>
             ) : filteredCreators.length === 0 ? (
@@ -255,7 +223,7 @@ export default function CreatorsDirectoryPage() {
                 <p className="text-xs text-slate-400 mt-0.5">Try clearing your search query or selecting "All" categories.</p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
                 {filteredCreators.map((creator) => {
                   const mainPortfolio = creator.portfolioItems?.[0];
                   const avgRating =
@@ -266,10 +234,10 @@ export default function CreatorsDirectoryPage() {
                   return (
                     <div
                       key={creator.id}
-                      className="rounded-2xl border border-slate-200/80 bg-white overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.04)] hover:shadow-md transition flex flex-col justify-between"
+                      className="rounded-2xl border border-slate-200/80 bg-white overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md flex flex-col justify-between"
                     >
                       {/* Video Preview Box */}
-                      <div className="relative bg-slate-950 aspect-[16/10] overflow-hidden group">
+                      <div className="relative bg-slate-950 aspect-video overflow-hidden group">
                         {mainPortfolio ? (
                           <div
                             className="w-full h-full cursor-pointer relative"
@@ -306,7 +274,7 @@ export default function CreatorsDirectoryPage() {
                       </div>
 
                       {/* Creator Info Body */}
-                      <div className="p-5 flex-1 flex flex-col justify-between">
+                      <div className="p-4 flex-1 flex flex-col justify-between">
                         <div>
                           <div className="flex items-center justify-between text-xs mb-1">
                             <span className="font-semibold text-slate-400 text-[11px] uppercase tracking-wider">
@@ -346,7 +314,7 @@ export default function CreatorsDirectoryPage() {
 
                           <Link
                             href={`/brief?creatorId=${creator.id}&creatorAlias=${encodeURIComponent(creator.displayAlias)}`}
-                            className="inline-flex items-center rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 transition"
+                            className="inline-flex items-center rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 transition"
                           >
                             Request Video
                           </Link>
@@ -372,7 +340,7 @@ export default function CreatorsDirectoryPage() {
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
-            <div className="flex items-center justify-between p-3.5 bg-slate-950 border-b border-slate-900">
+            <div className="flex items-center justify-between p-3.5 bg-slate-950 border-b border-indigo-600">
               <div>
                 <h3 className="text-xs font-bold text-white">{activeVideoModal.creatorAlias}</h3>
                 <p className="text-[10px] text-slate-400 truncate max-w-[180px]">{activeVideoModal.caption}</p>
