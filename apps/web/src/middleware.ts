@@ -7,7 +7,8 @@ const PROTECTED_ROUTES: Array<{ prefix: string; role: string }> = [
   { prefix: '/dashboard', role: 'CREATOR' },
   { prefix: '/brief', role: 'MERCHANT' },
   { prefix: '/collabs', role: 'MERCHANT' },
-  { prefix: '/moderation', role: 'SUPER_ADMIN' }
+  { prefix: '/moderation', role: 'SUPER_ADMIN' },
+  { prefix: '/admin', role: 'SUPER_ADMIN' }
 ];
 
 export function middleware(request: NextRequest) {
@@ -32,5 +33,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/brief/:path*', '/collabs/:path*', '/moderation/:path*']
+  matcher: ['/dashboard/:path*', '/brief/:path*', '/collabs/:path*', '/moderation/:path*', '/admin/:path*']
 };

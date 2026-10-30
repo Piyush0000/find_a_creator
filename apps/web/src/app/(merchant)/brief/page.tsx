@@ -11,8 +11,45 @@ import {
   Check,
   User
 } from 'lucide-react';
-import { ANTI_LEAK_PATTERNS, detectLinkLeaks } from '@evoc/types';
-import MerchantNav from '@/components/MerchantNav';
+import { ANTI_LEAK_PATTERNS, detectLinkLeaks, CreateCollabBriefSchema } from '@evoc/types';
+
+// Friendly field names for brief validation messages
+const FIELD_LABELS: Record<string, string> = {
+  creatorId: 'Creator',
+  productName: 'Product name',
+  productLink: 'Product store URL',
+  productPrice: 'Retail price',
+  scriptGuidelines: 'Script guidelines',
+  videoHooks: '3-second hook',
+  commissionPointsPerSale: 'Commission points'
+};
+
+// Turns validation issues into one readable sentence (never a raw JSON dump)
+const formatValidationIssues = (issues: Array<{ path: (string | number)[]; message: string }>) =>
+  issues.map((issue) => `${FIELD_LABELS[String(issue.path[0])] || 'Field'}: ${issue.message}`).join(' • ');
+
+// Friendly names for anti-leak rules shown under each field
+const LEAK_LABELS: Record<string, string> = {
+  PHONE_INDIA: 'phone number',
+  PHONE_GENERIC: 'phone number',
+  EMAIL: 'email address',
+  SOCIAL_HANDLE: 'social handle or chat link',
+  CIRCUMVENTION_KEYWORDS: 'off-platform contact phrase'
+};
+
+// Real-time red banner rendered directly below a field that contains contact info
+function LeakWarning({ violations }: { violations: string[] }) {
+  if (violations.length === 0) return null;
+  const labels = Array.from(new Set(violations.map((v) => LEAK_LABELS[v] || v.toLowerCase().replace(/_/g, ' '))));
+  return (
+    <div className="mt-1.5 flex items-start gap-1.5 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-[11px] text-rose-700">
+      <ShieldAlert className="h-3.5 w-3.5 flex-shrink-0 mt-px" />
+      <span>
+        Remove the {labels.join(', ')} — sharing contact details is not allowed on EVOC.
+      </span>
+    </div>
+  );
+}
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -120,6 +157,25 @@ function BriefFormContent() {
       return;
     }
 
+    const briefPayload = {
+      creatorId,
+      productName,
+      productLink,
+      productPrice: Number(productPrice),
+      scriptGuidelines,
+      videoHooks,
+      aspectRatio,
+      deliverableType: '1 UGC Video Ad (30-60s)',
+      commissionPointsPerSale: Number(commissionPoints)
+    };
+
+    // Validate with the same shared schema the API uses, before sending
+    const validation = CreateCollabBriefSchema.safeParse(briefPayload);
+    if (!validation.success) {
+      setSubmitError(formatValidationIssues(validation.error.issues));
+      return;
+    }
+
     setIsSubmitting(true);
     setSubmitError(null);
 
@@ -138,23 +194,21 @@ function BriefFormContent() {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {})
         },
-        body: JSON.stringify({
-          creatorId,
-          productName,
-          productLink,
-          productPrice: Number(productPrice),
-          scriptGuidelines,
-          videoHooks,
-          aspectRatio,
-          deliverableType: '1 UGC Video Ad (30-60s)',
-          commissionPointsPerSale: Number(commissionPoints)
-        })
+        body: JSON.stringify(briefPayload)
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        throw new Error(data.error || 'Failed to submit brief');
+        // Server validation errors can arrive as a JSON list; show them readably
+        let message: string = data.error || 'Failed to submit brief. Please try again.';
+        try {
+          const issues = JSON.parse(message);
+          if (Array.isArray(issues)) message = formatValidationIssues(issues);
+        } catch {
+          // Plain-text error message
+        }
+        throw new Error(message);
       }
 
       setSubmitSuccess({
@@ -162,15 +216,18 @@ function BriefFormContent() {
         utmTrackingSlug: data.utmTrackingSlug
       });
     } catch (err: any) {
-      setSubmitError(err.message || 'Brief submission failed');
+      setSubmitError(
+        err instanceof TypeError
+          ? 'Unable to connect to the server. Please check your connection and try again.'
+          : err.message || 'Brief submission failed'
+      );
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#FBFBFD] text-slate-900 font-sans antialiased pb-20">
-      <MerchantNav />
+    <div className="text-slate-900 pb-12">
 
       <main className="mx-auto max-w-3xl px-6 py-8">
         <div className="mb-6">
@@ -233,28 +290,6 @@ function BriefFormContent() {
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Live Anti-Leak Alert (Only shown when violation exists) */}
-            {hasAnyViolations && (
-              <div className="rounded-xl border border-rose-200 bg-rose-50/80 p-3.5 text-xs text-rose-800">
-                <div className="flex items-center font-semibold mb-1">
-                  <ShieldAlert className="h-4 w-4 mr-1.5 text-rose-600 flex-shrink-0" />
-                  Contact Information Detected
-                </div>
-                <p className="text-rose-600 text-[11px]">
-                  Please remove personal phone numbers, email addresses, or off-platform payment phrases to submit this brief.
-                </p>
-                <div className="mt-2 flex flex-wrap gap-1">
-                  {allDetectedViolations.map((v) => (
-                    <span
-                      key={v}
-                      className="rounded bg-rose-200/70 px-1.5 py-0.5 text-[10px] font-bold text-rose-900 uppercase"
-                    >
-                      {v.replace('_', ' ')}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
 
             {/* Target Creator Selection */}
             <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.02)] space-y-3">
@@ -293,7 +328,7 @@ function BriefFormContent() {
                   </p>
                   <Link
                     href="/creators"
-                    className="inline-flex items-center space-x-1.5 rounded-lg bg-slate-900 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 transition"
+                    className="inline-flex items-center space-x-1.5 rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 transition"
                   >
                     <span>Browse Creator Directory</span>
                   </Link>
@@ -319,6 +354,7 @@ function BriefFormContent() {
                     }`}
                     required
                   />
+                  <LeakWarning violations={productNameViolations} />
                 </div>
 
                 <div>
@@ -335,6 +371,7 @@ function BriefFormContent() {
                     }`}
                     required
                   />
+                  <LeakWarning violations={productLinkViolations} />
                 </div>
 
                 <div>
@@ -389,6 +426,7 @@ function BriefFormContent() {
                   }`}
                   required
                 />
+                  <LeakWarning violations={hookViolations} />
               </div>
 
               {/* Script Guidelines Field */}
@@ -408,6 +446,7 @@ function BriefFormContent() {
                   }`}
                   required
                 />
+                  <LeakWarning violations={scriptViolations} />
               </div>
 
               <div>
@@ -424,7 +463,7 @@ function BriefFormContent() {
                       onClick={() => setAspectRatio(item.ratio as any)}
                       className={`p-2.5 rounded-xl border text-xs font-semibold transition flex flex-col items-center justify-center ${
                         aspectRatio === item.ratio
-                          ? 'border-slate-900 bg-slate-900 text-white'
+                          ? 'border-indigo-600 bg-indigo-600 text-white'
                           : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
                       }`}
                     >
@@ -450,7 +489,7 @@ function BriefFormContent() {
               className={`w-full py-3 rounded-xl font-semibold text-xs shadow-sm transition flex items-center justify-center ${
                 hasAnyViolations
                   ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                  : 'bg-slate-900 text-white hover:bg-slate-800 cursor-pointer'
+                  : 'bg-indigo-600 text-white hover:bg-indigo-700 cursor-pointer'
               }`}
             >
               {isSubmitting ? (
@@ -472,7 +511,7 @@ export default function SubmitBriefPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen bg-[#FBFBFD] flex items-center justify-center">
+        <div className="py-24 flex items-center justify-center">
           <div className="text-xs font-medium text-slate-400">Loading brief form...</div>
         </div>
       }

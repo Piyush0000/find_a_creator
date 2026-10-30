@@ -15,3 +15,13 @@ export function setRoleCookie(role: string) {
 export function clearRoleCookie() {
   document.cookie = `${ROLE_COOKIE}=; path=/; max-age=0; samesite=lax`;
 }
+
+// Removes every stored token and the role cookie (used by all logout buttons)
+export function clearSession() {
+  localStorage.removeItem('evoc_token');
+  localStorage.removeItem('evoc_role');
+  localStorage.removeItem('evoc_user');
+  localStorage.removeItem('evoc_merchant_token');
+  localStorage.removeItem('evoc_admin_token');
+  clearRoleCookie();
+}

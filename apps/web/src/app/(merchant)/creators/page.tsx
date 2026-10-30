@@ -12,7 +12,6 @@ import {
   AlertCircle,
   RefreshCw
 } from 'lucide-react';
-import MerchantNav from '@/components/MerchantNav';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -124,8 +123,7 @@ export default function CreatorsDirectoryPage() {
   }, [creators, selectedCategories]);
 
   return (
-    <div className="min-h-screen bg-[#FBFBFD] text-slate-900 font-sans antialiased pb-20">
-      <MerchantNav />
+    <div className="text-slate-900 pb-12">
 
       {/* Directory Header */}
       <div className="border-b border-slate-200/70 bg-white">
@@ -172,7 +170,7 @@ export default function CreatorsDirectoryPage() {
                     onClick={() => toggleCategory(cat)}
                     className={`inline-flex items-center rounded-lg px-3 py-1 text-xs font-medium transition ${
                       isActive
-                        ? 'bg-slate-900 text-white shadow-sm'
+                        ? 'bg-indigo-600 text-white shadow-sm'
                         : 'bg-white text-slate-600 border border-slate-200 hover:border-slate-300 hover:bg-slate-50'
                     }`}
                   >
@@ -198,7 +196,7 @@ export default function CreatorsDirectoryPage() {
             <p className="text-xs text-rose-700 mt-1 leading-relaxed">{apiError}</p>
             <button
               onClick={() => loadCreators()}
-              className="mt-4 inline-flex items-center rounded-lg bg-slate-900 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 transition"
+              className="mt-4 inline-flex items-center rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 transition"
             >
               <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
               Retry
@@ -236,7 +234,7 @@ export default function CreatorsDirectoryPage() {
                   return (
                     <div
                       key={creator.id}
-                      className="rounded-2xl border border-slate-200/80 bg-white overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.04)] hover:shadow-md transition flex flex-col justify-between"
+                      className="rounded-2xl border border-slate-200/80 bg-white overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md flex flex-col justify-between"
                     >
                       {/* Video Preview Box */}
                       <div className="relative bg-slate-950 aspect-video overflow-hidden group">
@@ -316,7 +314,7 @@ export default function CreatorsDirectoryPage() {
 
                           <Link
                             href={`/brief?creatorId=${creator.id}&creatorAlias=${encodeURIComponent(creator.displayAlias)}`}
-                            className="inline-flex items-center rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 transition"
+                            className="inline-flex items-center rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 transition"
                           >
                             Request Video
                           </Link>
@@ -342,7 +340,7 @@ export default function CreatorsDirectoryPage() {
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
-            <div className="flex items-center justify-between p-3.5 bg-slate-950 border-b border-slate-900">
+            <div className="flex items-center justify-between p-3.5 bg-slate-950 border-b border-indigo-600">
               <div>
                 <h3 className="text-xs font-bold text-white">{activeVideoModal.creatorAlias}</h3>
                 <p className="text-[10px] text-slate-400 truncate max-w-[180px]">{activeVideoModal.caption}</p>

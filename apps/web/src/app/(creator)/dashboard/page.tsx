@@ -23,8 +23,7 @@ import {
   AlertCircle,
   RefreshCw
 } from 'lucide-react';
-import { clearRoleCookie } from '@/lib/session';
-import CreatorNav from '@/components/CreatorNav';
+import { useToast } from '@/components/Toast';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -60,8 +59,59 @@ interface DealItem {
   draftVideoUrl?: string;
 }
 
+// Cards shown per column before "Show more"
+const COLUMN_PREVIEW_COUNT = 4;
+
+interface KanbanColumnProps {
+  title: string;
+  dotClass: string;
+  items: DealItem[];
+  emptyText: string;
+  renderCard: (deal: DealItem) => React.ReactNode;
+}
+
+// One Kanban column that grows with its cards (no inner scrollbar)
+function KanbanColumn({ title, dotClass, items, emptyText, renderCard }: KanbanColumnProps) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const visibleItems = isExpanded ? items : items.slice(0, COLUMN_PREVIEW_COUNT);
+  const hiddenCount = items.length - visibleItems.length;
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-100/60 p-3">
+      <div className="flex items-center justify-between px-1 pb-3">
+        <div className="flex items-center gap-2">
+          <span className={`h-2 w-2 rounded-full ${dotClass}`} />
+          <span className="text-xs font-bold uppercase tracking-wide text-slate-700">{title}</span>
+        </div>
+        <span className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+          {items.length}
+        </span>
+      </div>
+
+      {items.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-slate-300 px-3 py-5 text-center text-xs text-slate-400">
+          {emptyText}
+        </div>
+      ) : (
+        <div className="space-y-2.5">
+          {visibleItems.map(renderCard)}
+          {items.length > COLUMN_PREVIEW_COUNT && (
+            <button
+              onClick={() => setIsExpanded((prev) => !prev)}
+              className="w-full rounded-lg py-1.5 text-xs font-semibold text-indigo-600 hover:bg-white transition"
+            >
+              {isExpanded ? 'Show less' : `Show ${hiddenCount} more`}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function CreatorDashboardPage() {
   const router = useRouter();
+  const { showToast } = useToast();
   const [token, setToken] = useState<string | null>(null);
   const [displayAlias, setDisplayAlias] = useState<string>('Sai K. — Tech & Lifestyle');
   const [points, setPoints] = useState<PointsSummary>({
@@ -83,6 +133,8 @@ export default function CreatorDashboardPage() {
 
   // Detail Modal for Brief viewing
   const [selectedBriefDetail, setSelectedBriefDetail] = useState<DealItem | null>(null);
+  // Revision feedback boxes the creator has expanded
+  const [expandedFeedbackIds, setExpandedFeedbackIds] = useState<string[]>([]);
 
   // Initialize Session & Fetch Live Data (Strict Route Guard)
   const initSession = async () => {
@@ -143,16 +195,6 @@ export default function CreatorDashboardPage() {
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('evoc_token');
-    localStorage.removeItem('evoc_role');
-    localStorage.removeItem('evoc_user');
-    localStorage.removeItem('evoc_merchant_token');
-    localStorage.removeItem('evoc_admin_token');
-    clearRoleCookie();
-    router.push('/login');
-  };
-
   const handleAcceptDeal = async (dealId: string) => {
     try {
       const activeToken = token || localStorage.getItem('evoc_token');
@@ -167,12 +209,13 @@ export default function CreatorDashboardPage() {
         setDeals((prev) =>
           prev.map((d) => (d.id === dealId ? { ...d, status: 'CREATOR_ACCEPTED' } : d))
         );
+        showToast('Deal accepted! It moved to Sample In Transit.');
       } else {
         const errData = await res.json().catch(() => ({}));
-        alert(errData.error || 'Failed to accept deal');
+        showToast(errData.error || 'Failed to accept deal', 'error');
       }
     } catch (err: any) {
-      alert(err.message || 'Network error while accepting deal');
+      showToast(err.message || 'Network error while accepting deal', 'error');
     }
   };
 
@@ -189,12 +232,13 @@ export default function CreatorDashboardPage() {
       });
       if (res.ok) {
         setDeals((prev) => prev.filter((d) => d.id !== dealId));
+        showToast('Brief declined.', 'info');
       } else {
         const errData = await res.json().catch(() => ({}));
-        alert(errData.error || 'Failed to decline deal');
+        showToast(errData.error || 'Failed to decline deal', 'error');
       }
     } catch (err: any) {
-      alert(err.message || 'Network error while declining deal');
+      showToast(err.message || 'Network error while declining deal', 'error');
     }
   };
 
@@ -310,6 +354,7 @@ export default function CreatorDashboardPage() {
       );
 
       setUploadSuccess('Video uploaded! Sent to EVOC Ops for Stage 1 quality check.');
+      showToast('Draft uploaded and sent to EVOC Ops for review.');
       setTimeout(() => {
         setIsUploadModalOpen(false);
         setUploadProgress(0);
@@ -339,12 +384,7 @@ export default function CreatorDashboardPage() {
   const activeDealsCount = briefsReceived.length + samplesInTransit.length + inReview.length;
 
   return (
-    <div className="min-h-screen bg-[#FBFBFD] text-slate-900 font-sans antialiased">
-      <CreatorNav
-        displayAlias={displayAlias}
-        pointsBalance={points.pointsBalance}
-        onLogout={handleLogout}
-      />
+    <div className="text-slate-900 pb-12">
 
       {/* Main Container */}
       <main className="mx-auto max-w-7xl px-6 py-8 space-y-8">
@@ -357,7 +397,7 @@ export default function CreatorDashboardPage() {
             <p className="text-xs text-rose-700 mt-1 leading-relaxed">{apiError}</p>
             <button
               onClick={() => initSession()}
-              className="mt-4 inline-flex items-center rounded-lg bg-slate-900 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 transition"
+              className="mt-4 inline-flex items-center rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 transition"
             >
               <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
               Retry
@@ -402,7 +442,7 @@ export default function CreatorDashboardPage() {
                   <Clock className="h-3.5 w-3.5 text-amber-500 mr-1.5" />
                   Locked (14-Day Maturation)
                 </span>
-                <span className="text-[11px] font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
+                <span className="text-[11px] font-medium text-amber-600 border border-amber-200 bg-amber-50 px-2 py-0.5 rounded-full">
                   Pending Clearance
                 </span>
               </div>
@@ -421,7 +461,7 @@ export default function CreatorDashboardPage() {
                   <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 mr-1.5" />
                   Available to Withdraw
                 </span>
-                <span className="text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
+                <span className="text-[11px] font-medium text-emerald-700 border border-emerald-200 bg-emerald-50 px-2 py-0.5 rounded-full">
                   Settled
                 </span>
               </div>
@@ -448,252 +488,178 @@ export default function CreatorDashboardPage() {
           </div>
 
           {/* Kanban Board Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-start">
             {/* Column 1: Briefs Received */}
-            <div className="rounded-2xl border border-slate-200/70 bg-[#F4F5F7] p-4 flex flex-col h-[520px]">
-              <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-200/80">
-                <div className="flex items-center space-x-2">
-                  <div className="h-2 w-2 rounded-full bg-blue-500" />
-                  <span className="text-xs font-bold text-slate-700 uppercase tracking-wide">Briefs Received</span>
-                </div>
-                <span className="rounded-md bg-white border border-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-600">
-                  {briefsReceived.length}
-                </span>
-              </div>
-
-              <div className="space-y-3 flex-1 overflow-y-auto -mr-2 pr-2">
-                {briefsReceived.length === 0 ? (
-                  <div className="h-full flex flex-col items-center justify-center p-6 text-center text-slate-400">
-                    <Inbox className="h-8 w-8 mb-2 stroke-[1.5] text-slate-300" />
-                    <p className="text-xs font-medium text-slate-600">No pending briefs</p>
-                    <p className="text-[11px] text-slate-400 mt-0.5">
-                      New brand requests will appear here when a merchant selects your profile.
-                    </p>
+            <KanbanColumn
+              title="Briefs Received"
+              dotClass="bg-blue-500"
+              items={briefsReceived}
+              emptyText="No new briefs yet"
+              renderCard={(deal) => (
+                <div key={deal.id} className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md animate-fade-in">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="min-w-0 truncate text-xs font-semibold text-indigo-600">{deal.brandName}</span>
+                    <span className="flex-shrink-0 whitespace-nowrap rounded-md border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold text-indigo-700">
+                      +{deal.commissionPointsPerSale} pts/sale
+                    </span>
                   </div>
-                ) : (
-                  briefsReceived.map((deal) => (
-                    <div
-                      key={deal.id}
-                      className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm hover:border-slate-300 hover:shadow transition"
-                    >
-                      <div className="flex items-start justify-between">
-                        <span className="text-xs font-bold text-indigo-600 tracking-tight">{deal.brandName}</span>
-                        <span className="rounded-md bg-indigo-50 px-2 py-0.5 text-[11px] font-bold text-indigo-700">
-                          +{deal.commissionPointsPerSale} pts/sale
-                        </span>
-                      </div>
-
-                      <h3 className="mt-2 text-sm font-semibold text-slate-900 leading-snug">{deal.productName}</h3>
-                      <p className="mt-1 text-xs text-slate-500 line-clamp-2">{deal.scriptGuidelines}</p>
-
-                      <div className="mt-3.5 flex items-center justify-between text-[11px] text-slate-400 border-t border-slate-100 pt-2.5">
-                        <span className="inline-flex items-center text-slate-500">
-                          <Smartphone className="h-3 w-3 mr-1 text-slate-400" />
-                          {deal.aspectRatio}
-                        </span>
-                        <span className="font-medium text-slate-600">₹{deal.productPrice} Retail</span>
-                      </div>
-
-                      <div className="mt-3 flex items-center space-x-2">
-                        <button
-                          onClick={() => handleAcceptDeal(deal.id)}
-                          className="flex-1 rounded-lg bg-slate-900 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 transition"
-                        >
-                          Accept Deal
-                        </button>
-                        <button
-                          onClick={() => setSelectedBriefDetail(deal)}
-                          className="flex-1 rounded-lg border border-slate-200 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
-                        >
-                          View Brief
-                        </button>
-                        <button
-                          onClick={() => handleDeclineDeal(deal.id)}
-                          title="Decline Brief"
-                          className="rounded-lg border border-slate-200 p-1.5 text-xs text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-
-            {/* Column 2: In Production & Shipped Samples */}
-            <div className="rounded-2xl border border-slate-200/70 bg-[#F4F5F7] p-4 flex flex-col h-[520px]">
-              <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-200/80">
-                <div className="flex items-center space-x-2">
-                  <div className="h-2 w-2 rounded-full bg-amber-500" />
-                  <span className="text-xs font-bold text-slate-700 uppercase tracking-wide">In Production</span>
-                </div>
-                <span className="rounded-md bg-white border border-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-600">
-                  {samplesInTransit.length}
-                </span>
-              </div>
-
-              <div className="space-y-3 flex-1 overflow-y-auto -mr-2 pr-2">
-                {samplesInTransit.length === 0 ? (
-                  <div className="h-full flex flex-col items-center justify-center p-6 text-center text-slate-400">
-                    <Package className="h-8 w-8 mb-2 stroke-[1.5] text-slate-300" />
-                    <p className="text-xs font-medium text-slate-600">No active production deals</p>
-                    <p className="text-[11px] text-slate-400 mt-0.5">
-                      Accepted brand briefs and shipped product samples will appear here ready for shooting.
-                    </p>
+                  <h3 className="mt-1.5 text-sm font-semibold text-slate-900 leading-snug">{deal.productName}</h3>
+                  <p className="mt-1 text-xs text-slate-500 line-clamp-2">{deal.scriptGuidelines}</p>
+                  <div className="mt-2.5 flex items-center justify-between text-[11px] text-slate-500">
+                    <span className="inline-flex items-center">
+                      <Smartphone className="h-3 w-3 mr-1 text-slate-400" />
+                      {deal.aspectRatio}
+                    </span>
+                    <span className="font-medium text-slate-600">₹{deal.productPrice} retail</span>
                   </div>
-                ) : (
-                  samplesInTransit.map((deal) => (
-                    <div
-                      key={deal.id}
-                      className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm hover:border-slate-300 hover:shadow transition"
+                  <div className="mt-3 flex items-center gap-2">
+                    <button
+                      onClick={() => handleAcceptDeal(deal.id)}
+                      className="flex-1 rounded-lg bg-indigo-600 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 transition"
                     >
-                      <div className="flex items-start justify-between">
-                        <span className="text-xs font-bold text-indigo-600 tracking-tight">{deal.brandName}</span>
-                        <span
-                          className={`rounded-md px-2 py-0.5 text-[11px] font-bold ${
-                            deal.status === 'DRAFT_REVISION_REQUESTED'
-                              ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                              : deal.status === 'CREATOR_ACCEPTED'
-                              ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                              : 'bg-amber-50 text-amber-700 border border-amber-200'
-                          }`}
-                        >
-                          {deal.status === 'DRAFT_REVISION_REQUESTED'
-                            ? 'Revision Needed'
+                      Accept
+                    </button>
+                    <button
+                      onClick={() => setSelectedBriefDetail(deal)}
+                      className="flex-1 rounded-lg border border-slate-200 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
+                    >
+                      View Brief
+                    </button>
+                    <button
+                      onClick={() => handleDeclineDeal(deal.id)}
+                      title="Decline Brief"
+                      className="rounded-lg border border-slate-200 p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              )}
+            />
+
+            {/* Column 2: Sample In Transit */}
+            <KanbanColumn
+              title="Sample In Transit"
+              dotClass="bg-amber-500"
+              items={samplesInTransit}
+              emptyText="No samples on the way"
+              renderCard={(deal) => {
+                const isRevision = deal.status === 'DRAFT_REVISION_REQUESTED';
+                const isFeedbackOpen = expandedFeedbackIds.includes(deal.id);
+                return (
+                  <div key={deal.id} className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md animate-fade-in">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="min-w-0 truncate text-xs font-semibold text-indigo-600">{deal.brandName}</span>
+                      <span
+                        className={`flex-shrink-0 whitespace-nowrap rounded-md border px-1.5 py-0.5 text-[10px] font-bold ${
+                          isRevision
+                            ? 'border-rose-200 bg-rose-50 text-rose-700'
                             : deal.status === 'CREATOR_ACCEPTED'
-                            ? 'Accepted'
-                            : 'Sample In Transit'}
-                        </span>
-                      </div>
+                            ? 'border-blue-200 bg-blue-50 text-blue-700'
+                            : 'border-amber-200 bg-amber-50 text-amber-700'
+                        }`}
+                      >
+                        {isRevision ? 'Revision Needed' : deal.status === 'CREATOR_ACCEPTED' ? 'Accepted' : 'In Transit'}
+                      </span>
+                    </div>
+                    <h3 className="mt-1.5 text-sm font-semibold text-slate-900 leading-snug">{deal.productName}</h3>
 
-                      <h3 className="mt-2 text-sm font-semibold text-slate-900 leading-snug">{deal.productName}</h3>
+                    <div className="mt-2 flex items-center gap-1.5 text-[11px] text-slate-500" title={deal.courierTracking}>
+                      <Truck className="h-3.5 w-3.5 flex-shrink-0 text-slate-400" />
+                      <span className="truncate">
+                        {deal.courierTracking ||
+                          (deal.status === 'CREATOR_ACCEPTED' ? 'Awaiting sample dispatch' : 'Tracking details not added')}
+                      </span>
+                    </div>
 
-                      <div className="mt-3 flex items-center rounded-lg bg-slate-50 border border-slate-200/80 p-2 text-xs text-slate-600">
-                        <Truck className="h-3.5 w-3.5 text-indigo-600 mr-2 flex-shrink-0" />
-                        <span className="truncate text-[11px] font-mono">
-                          {deal.courierTracking || (deal.status === 'CREATOR_ACCEPTED' ? 'Awaiting sample dispatch' : 'Courier tracking active')}
-                        </span>
-                      </div>
-
-                      {deal.status === 'DRAFT_REVISION_REQUESTED' && deal.revisionNotes && (
-                        <div className="mt-3 rounded-lg bg-rose-50 border border-rose-200 p-2.5 text-[11px] text-rose-800 leading-relaxed">
-                          <span className="font-semibold block mb-0.5">EVOC Ops feedback:</span>
+                    {isRevision && deal.revisionNotes && (
+                      <div className="mt-2.5 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-2 text-[11px] text-rose-800 leading-relaxed">
+                        <p className={isFeedbackOpen ? '' : 'line-clamp-2'}>
+                          <span className="font-semibold">EVOC Ops: </span>
                           {deal.revisionNotes}
-                        </div>
-                      )}
-
-                      <div className="mt-3">
+                        </p>
                         <button
-                          onClick={() => {
-                            setSelectedDealForUpload(deal.id);
-                            setIsUploadModalOpen(true);
-                          }}
-                          className="w-full flex items-center justify-center rounded-lg bg-emerald-600 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 shadow-sm transition"
+                          onClick={() =>
+                            setExpandedFeedbackIds((prev) =>
+                              isFeedbackOpen ? prev.filter((id) => id !== deal.id) : [...prev, deal.id]
+                            )
+                          }
+                          className="mt-0.5 font-semibold text-rose-700 hover:underline"
                         >
-                          <Upload className="h-3.5 w-3.5 mr-1.5" />
-                          <span>Upload Draft Video</span>
+                          {isFeedbackOpen ? 'Show less' : 'Read more'}
                         </button>
                       </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
+                    )}
+
+                    <button
+                      onClick={() => {
+                        setSelectedDealForUpload(deal.id);
+                        setIsUploadModalOpen(true);
+                      }}
+                      className="mt-3 w-full flex items-center justify-center rounded-lg bg-emerald-600 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 transition"
+                    >
+                      <Upload className="h-3.5 w-3.5 mr-1.5" />
+                      {isRevision ? 'Upload New Draft' : 'Upload Draft Video'}
+                    </button>
+                  </div>
+                );
+              }}
+            />
 
             {/* Column 3: In Review */}
-            <div className="rounded-2xl border border-slate-200/70 bg-[#F4F5F7] p-4 flex flex-col h-[520px]">
-              <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-200/80">
-                <div className="flex items-center space-x-2">
-                  <div className="h-2 w-2 rounded-full bg-emerald-500" />
-                  <span className="text-xs font-bold text-slate-700 uppercase tracking-wide">In Review (Stage 1 / 2)</span>
-                </div>
-                <span className="rounded-md bg-white border border-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-600">
-                  {inReview.length}
-                </span>
-              </div>
-
-              <div className="space-y-3 flex-1 overflow-y-auto -mr-2 pr-2">
-                {inReview.length === 0 ? (
-                  <div className="h-full flex flex-col items-center justify-center p-6 text-center text-slate-400">
-                    <FileCheck2 className="h-8 w-8 mb-2 stroke-[1.5] text-slate-300" />
-                    <p className="text-xs font-medium text-slate-600">No active reviews</p>
-                    <p className="text-[11px] text-slate-400 mt-0.5">
-                      Videos you upload undergo Stage 1 EVOC Ops vetting before being unlocked for the merchant.
-                    </p>
+            <KanbanColumn
+              title="In Review"
+              dotClass="bg-emerald-500"
+              items={inReview}
+              emptyText="No drafts under review"
+              renderCard={(deal) => (
+                <div key={deal.id} className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md animate-fade-in">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="min-w-0 truncate text-xs font-semibold text-indigo-600">{deal.brandName}</span>
+                    <span className="flex-shrink-0 whitespace-nowrap rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">
+                      {deal.status === 'DRAFT_PENDING_EVOC' ? 'EVOC Ops Review' : 'Brand Review'}
+                    </span>
                   </div>
-                ) : (
-                  inReview.map((deal) => (
-                    <div
-                      key={deal.id}
-                      className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm hover:border-slate-300 hover:shadow transition"
-                    >
-                      <div className="flex items-start justify-between">
-                        <span className="text-xs font-bold text-indigo-600 tracking-tight">{deal.brandName}</span>
-                        <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-700">
-                          {deal.status === 'DRAFT_PENDING_EVOC' ? 'EVOC Ops Review' : 'Brand Review'}
-                        </span>
-                      </div>
-
-                      <h3 className="mt-2 text-sm font-semibold text-slate-900 leading-snug">{deal.productName}</h3>
-
-                      <div className="mt-3 flex items-center justify-between rounded-lg bg-slate-900 text-white p-2.5 text-xs">
-                        <div className="flex items-center space-x-2">
-                          <Video className="h-3.5 w-3.5 text-emerald-400" />
-                          <span className="text-[11px] font-medium">9:16 Video Draft</span>
-                        </div>
-                        <span className="text-[10px] text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded">Private Stream</span>
-                      </div>
-
-                      <div className="mt-2.5 text-[11px] text-slate-400 flex items-center">
-                        <ShieldCheck className="h-3 w-3 text-emerald-600 mr-1.5" />
-                        {deal.status === 'DRAFT_PENDING_EVOC'
-                          ? 'Stage 1 quality vetting in progress'
-                          : 'Cleared by EVOC Ops — awaiting brand approval'}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
+                  <h3 className="mt-1.5 text-sm font-semibold text-slate-900 leading-snug">{deal.productName}</h3>
+                  <div className="mt-2 flex items-center gap-1.5 text-[11px] text-slate-500">
+                    <Video className="h-3.5 w-3.5 flex-shrink-0 text-slate-400" />
+                    <span>9:16 draft · private stream</span>
+                  </div>
+                  <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-slate-500">
+                    <ShieldCheck className="h-3.5 w-3.5 flex-shrink-0 text-emerald-600" />
+                    <span>
+                      {deal.status === 'DRAFT_PENDING_EVOC'
+                        ? 'Stage 1 quality check in progress'
+                        : 'Cleared by EVOC Ops — awaiting brand approval'}
+                    </span>
+                  </div>
+                </div>
+              )}
+            />
 
             {/* Column 4: Delivered */}
-            <div className="rounded-2xl border border-slate-200/70 bg-[#F4F5F7] p-4 flex flex-col h-[520px]">
-              <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-200/80">
-                <div className="flex items-center space-x-2">
-                  <div className="h-2 w-2 rounded-full bg-slate-400" />
-                  <span className="text-xs font-bold text-slate-700 uppercase tracking-wide">Delivered</span>
-                </div>
-                <span className="rounded-md bg-white border border-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-600">
-                  {delivered.length}
-                </span>
-              </div>
-
-              <div className="space-y-2 flex-1 overflow-y-auto -mr-2 pr-2">
-                {delivered.length === 0 ? (
-                  <div className="h-full flex flex-col items-center justify-center p-6 text-center text-slate-400">
-                    <CheckCircle2 className="h-8 w-8 mb-2 stroke-[1.5] text-slate-300" />
-                    <p className="text-xs font-medium text-slate-600">No delivered ads yet</p>
-                    <p className="text-[11px] text-slate-400 mt-0.5">
-                      Ads approved by the brand move here. You earn points on every sale they drive.
-                    </p>
+            <KanbanColumn
+              title="Delivered"
+              dotClass="bg-slate-400"
+              items={delivered}
+              emptyText="No delivered ads yet"
+              renderCard={(deal) => (
+                <div
+                  key={deal.id}
+                  className="rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md animate-fade-in"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="min-w-0 truncate text-sm font-semibold text-slate-900">{deal.productName}</span>
+                    <span className="flex-shrink-0 rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-bold text-slate-600">
+                      {deal.status === 'CAMPAIGN_ACTIVE' ? 'Live' : deal.status === 'COMPLETED' ? 'Completed' : 'Delivered'}
+                    </span>
                   </div>
-                ) : (
-                  delivered.map((deal) => (
-                    <div key={deal.id} className="rounded-xl border border-slate-200/90 bg-white px-3.5 py-3 shadow-sm">
-                      <div className="flex items-start justify-between gap-2">
-                        <span className="text-xs font-bold text-indigo-600 tracking-tight truncate">{deal.brandName}</span>
-                        <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600 flex-shrink-0">
-                          {deal.status === 'CAMPAIGN_ACTIVE' ? 'Live' : deal.status === 'COMPLETED' ? 'Completed' : 'Delivered'}
-                        </span>
-                      </div>
-                      <h3 className="mt-1 text-xs font-semibold text-slate-900 truncate">{deal.productName}</h3>
-                      <p className="mt-1 text-[11px] text-slate-400">+{deal.commissionPointsPerSale} pts per sale</p>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
+                  <p className="mt-0.5 truncate text-[11px] text-slate-500">
+                    {deal.brandName} · +{deal.commissionPointsPerSale} pts per sale
+                  </p>
+                </div>
+              )}
+            />
           </div>
         </section>
       </>
@@ -776,7 +742,7 @@ export default function CreatorDashboardPage() {
                     </div>
                     <div className="h-1.5 w-full bg-slate-200 rounded-full overflow-hidden">
                       <div
-                        className="h-full bg-slate-900 transition-all duration-150"
+                        className="h-full bg-indigo-600 animate-pulse transition-all duration-150"
                         style={{ width: `${uploadProgress}%` }}
                       />
                     </div>
@@ -854,7 +820,7 @@ export default function CreatorDashboardPage() {
             <div className="mt-6 flex justify-end">
               <button
                 onClick={() => setSelectedBriefDetail(null)}
-                className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800 transition"
+                className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-700 transition"
               >
                 Close Brief
               </button>

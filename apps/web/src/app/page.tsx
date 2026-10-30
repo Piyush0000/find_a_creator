@@ -17,7 +17,7 @@ export default function HomePage() {
         <div className="mt-6 flex justify-center">
           <Link
             href="/login"
-            className="inline-flex items-center space-x-1.5 rounded-xl bg-slate-900 px-5 py-2.5 text-xs font-semibold text-white hover:bg-slate-800 shadow-sm transition"
+            className="inline-flex items-center space-x-1.5 rounded-xl bg-indigo-600 px-5 py-2.5 text-xs font-semibold text-white hover:bg-indigo-700 shadow-sm transition"
           >
             <span>Sign In to Account</span>
           </Link>

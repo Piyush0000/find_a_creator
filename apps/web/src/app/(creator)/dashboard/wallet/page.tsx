@@ -18,9 +18,9 @@ import {
   History,
   Inbox
 } from 'lucide-react';
-import { clearRoleCookie } from '@/lib/session';
-import CreatorNav from '@/components/CreatorNav';
 import { UPI_VPA_REGEX } from '@evoc/types';
+import { useToast } from '@/components/Toast';
+import { refreshPointsBadge } from '@/components/AppShell';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -46,6 +46,7 @@ interface LedgerItem {
   transactionType: string;
   status: string;
   description?: string;
+  referenceId?: string | null;
   createdAt: string;
 }
 
@@ -63,6 +64,7 @@ const formatUnlockCountdown = (createdAt: string) => {
 
 export default function CreatorWalletPage() {
   const router = useRouter();
+  const { showToast } = useToast();
   const [token, setToken] = useState<string | null>(null);
   const [displayAlias, setDisplayAlias] = useState<string>('Sai K. — Tech & Lifestyle');
   const [points, setPoints] = useState<PointsSummary>({
@@ -132,7 +134,7 @@ export default function CreatorWalletPage() {
       }
 
       // 3. Fetch Transaction Ledger
-      const ledgerRes = await fetch(`${API_BASE}/api/creators/me/ledger`, {
+      const ledgerRes = await fetch(`${API_BASE}/api/creators/me/ledger?limit=100`, {
         headers: { Authorization: `Bearer ${activeToken}` }
       });
 
@@ -148,15 +150,10 @@ export default function CreatorWalletPage() {
     }
   }, [router]);
 
-  const handleLogout = () => {
-    localStorage.removeItem('evoc_token');
-    localStorage.removeItem('evoc_role');
-    localStorage.removeItem('evoc_user');
-    localStorage.removeItem('evoc_merchant_token');
-    localStorage.removeItem('evoc_admin_token');
-    clearRoleCookie();
-    router.push('/login');
-  };
+  // Lifetime Earnings: every purchase commission ever credited (payouts don't reduce it)
+  const lifetimeEarnings = ledger
+    .filter((item) => item.transactionType === 'PURCHASE_COMMISSION' && item.pointsDelta > 0)
+    .reduce((sum, item) => sum + item.pointsDelta, 0);
 
   // Earliest locked credit determines the next maturation date
   const nextLockedEntry = ledger
@@ -168,6 +165,13 @@ export default function CreatorWalletPage() {
   }, [loadWalletData]);
 
   // Handle Request Payout Submission
+  // Live UPI VPA validation while the creator types
+  const upiStatus: 'empty' | 'valid' | 'invalid' = !upiVpa.trim()
+    ? 'empty'
+    : UPI_VPA_REGEX.test(upiVpa.trim())
+    ? 'valid'
+    : 'invalid';
+
   const handleRequestPayout = async (e: React.FormEvent) => {
     e.preventDefault();
     setModalError(null);
@@ -211,8 +215,9 @@ export default function CreatorWalletPage() {
         throw new Error(data.error || 'Failed to submit payout request');
       }
 
-      setModalSuccess(`Payout request submitted! EVOC Finance will transfer ₹${numPoints} to your UPI ID and add the bank UTR reference here once it is cleared.`);
-      
+      showToast(`Payout request submitted! EVOC Finance will transfer ₹${numPoints} to your UPI ID.`);
+      refreshPointsBadge();
+
       // Refresh wallet balances
       setPoints((prev) => ({
         ...prev,
@@ -232,12 +237,9 @@ export default function CreatorWalletPage() {
         ...prev
       ]);
 
-      setTimeout(() => {
-        setIsModalOpen(false);
-        setUpiVpa('');
-        setPointsToRedeem('');
-        setModalSuccess(null);
-      }, 2000);
+      setIsModalOpen(false);
+      setUpiVpa('');
+      setPointsToRedeem('');
     } catch (err: any) {
       setModalError(err.message || 'Payout request failed');
     } finally {
@@ -246,12 +248,7 @@ export default function CreatorWalletPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#FBFBFD] text-slate-900 font-sans antialiased pb-20">
-      <CreatorNav
-        displayAlias={displayAlias}
-        pointsBalance={points.pointsBalance}
-        onLogout={handleLogout}
-      />
+    <div className="text-slate-900 pb-12">
 
       {/* Main Container */}
       <main className="mx-auto max-w-7xl px-6 py-8 space-y-8">
@@ -264,7 +261,7 @@ export default function CreatorWalletPage() {
             <p className="text-xs text-rose-700 mt-1 leading-relaxed">{apiError}</p>
             <button
               onClick={() => loadWalletData()}
-              className="mt-4 inline-flex items-center rounded-lg bg-slate-900 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 transition"
+              className="mt-4 inline-flex items-center rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 transition"
             >
               <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
               Retry
@@ -281,12 +278,31 @@ export default function CreatorWalletPage() {
             </div>
 
             <section className="grid grid-cols-1 md:grid-cols-3 gap-5">
-              {/* Card 1: Available to Withdraw */}
+              {/* Card 1: Lifetime Earnings */}
               <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-[0_1px_3px_rgba(0,0,0,0.03)] flex flex-col justify-between">
                 <div>
                   <div className="flex items-center justify-between text-xs text-slate-500">
-                    <span className="font-semibold text-slate-700">Available to Withdraw</span>
-                    <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-700">
+                    <span className="font-semibold text-slate-700">Lifetime Earnings</span>
+                    <Coins className="h-4 w-4 text-slate-400" />
+                  </div>
+                  <div className="mt-3 text-3xl font-bold text-slate-900 tracking-tight">
+                    {lifetimeEarnings.toLocaleString()} <span className="text-sm font-semibold text-slate-400">pts</span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-400">
+                    ≈ ₹{lifetimeEarnings.toLocaleString()} total earned from ad sales
+                  </p>
+                </div>
+
+                <div className="mt-5 pt-4 border-t border-slate-100 text-[11px] text-slate-400">
+                  Current balance: {points.pointsBalance.toLocaleString()} pts
+                </div>
+              </div>
+              {/* Card 2: Settled Points */}
+              <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-[0_1px_3px_rgba(0,0,0,0.03)] flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between text-xs text-slate-500">
+                    <span className="font-semibold text-slate-700">Settled Points</span>
+                    <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-700">
                       Settled
                     </span>
                   </div>
@@ -294,7 +310,7 @@ export default function CreatorWalletPage() {
                     ₹{points.settledPoints.toLocaleString()}
                   </div>
                   <p className="mt-1 text-xs text-slate-400">
-                    {points.settledPoints.toLocaleString()} points ready for UPI payout
+                    {points.settledPoints.toLocaleString()} pts ready to withdraw @ ₹1/pt
                   </p>
                 </div>
 
@@ -305,21 +321,21 @@ export default function CreatorWalletPage() {
                       setPointsToRedeem(points.settledPoints >= 500 ? points.settledPoints : '');
                       setIsModalOpen(true);
                     }}
-                    className="w-full rounded-xl bg-slate-900 py-2 text-xs font-semibold text-white shadow-sm hover:bg-slate-800 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="w-full rounded-xl bg-indigo-600 py-2 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700 transition disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     {points.settledPoints >= 500
-                      ? 'Withdraw via UPI'
+                      ? 'Request Payout'
                       : 'Min. 500 pts required to withdraw'}
                   </button>
                 </div>
               </div>
 
-              {/* Card 2: Locked Escrow */}
+              {/* Card 3: Locked Points */}
               <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-[0_1px_3px_rgba(0,0,0,0.03)] flex flex-col justify-between">
                 <div>
                   <div className="flex items-center justify-between text-xs text-slate-500">
-                    <span className="font-semibold text-slate-700">Locked in Maturation</span>
-                    <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-700">
+                    <span className="font-semibold text-slate-700">Locked Points</span>
+                    <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-700">
                       Pending Clearance
                     </span>
                   </div>
@@ -347,25 +363,6 @@ export default function CreatorWalletPage() {
                 </div>
               </div>
 
-              {/* Card 3: Total Lifetime Accumulated */}
-              <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-[0_1px_3px_rgba(0,0,0,0.03)] flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between text-xs text-slate-500">
-                    <span className="font-semibold text-slate-700">Total Lifetime Value</span>
-                    <Coins className="h-4 w-4 text-slate-400" />
-                  </div>
-                  <div className="mt-3 text-3xl font-bold text-slate-900 tracking-tight">
-                    ₹{points.pointsBalance.toLocaleString()}
-                  </div>
-                  <p className="mt-1 text-xs text-slate-400">
-                    {points.pointsBalance.toLocaleString()} lifetime EVOC points earned
-                  </p>
-                </div>
-
-                <div className="mt-5 pt-4 border-t border-slate-100 text-[11px] text-slate-400">
-                  Earned across all active brand ad campaigns.
-                </div>
-              </div>
             </section>
 
             {/* Payout Requests History */}
@@ -424,10 +421,10 @@ export default function CreatorWalletPage() {
                               <span
                                 className={`rounded px-2 py-0.5 text-[11px] font-bold uppercase ${
                                   isCleared
-                                    ? 'bg-emerald-50 text-emerald-700'
+                                    ? 'border border-emerald-200 bg-emerald-50 text-emerald-700'
                                     : isPending
-                                    ? 'bg-amber-50 text-amber-700'
-                                    : 'bg-rose-50 text-rose-700'
+                                    ? 'border border-amber-200 bg-amber-50 text-amber-700'
+                                    : 'border border-rose-200 bg-rose-50 text-rose-700'
                                 }`}
                               >
                                 {isCleared ? 'Cleared' : isPending ? 'Processing' : 'Rejected'}
@@ -472,6 +469,12 @@ export default function CreatorWalletPage() {
                   <p className="text-xs text-slate-400 mt-0.5">
                     Commissions earned when shoppers purchase products via your UGC videos will appear here.
                   </p>
+                  <Link
+                    href="/dashboard"
+                    className="mt-4 inline-flex items-center rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 transition"
+                  >
+                    View My Deals
+                  </Link>
                 </div>
               ) : (
                 <div className="rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_3px_rgba(0,0,0,0.03)] overflow-hidden">
@@ -479,8 +482,9 @@ export default function CreatorWalletPage() {
                     <thead>
                       <tr className="border-b border-slate-100 bg-slate-50/50 text-[11px] font-bold uppercase tracking-wider text-slate-400">
                         <th className="px-6 py-3.5">Date</th>
+                        <th className="px-6 py-3.5">Order ID</th>
                         <th className="px-6 py-3.5">Activity</th>
-                        <th className="px-6 py-3.5">Change</th>
+                        <th className="px-6 py-3.5">Points</th>
                         <th className="px-6 py-3.5 text-right">Status</th>
                       </tr>
                     </thead>
@@ -494,6 +498,9 @@ export default function CreatorWalletPage() {
                             <td className="px-6 py-4 text-slate-500">
                               {new Date(item.createdAt).toLocaleDateString()}
                             </td>
+                            <td className="px-6 py-4 font-mono text-[11px] text-slate-600">
+                              {item.transactionType === 'PURCHASE_COMMISSION' && item.referenceId ? item.referenceId : '—'}
+                            </td>
                             <td className="px-6 py-4 font-medium text-slate-900">
                               {item.description || item.transactionType.replace(/_/g, ' ')}
                             </td>
@@ -506,14 +513,14 @@ export default function CreatorWalletPage() {
                               <span
                                 className={`rounded px-2 py-0.5 text-[10px] font-bold uppercase ${
                                   isSettled
-                                    ? 'bg-emerald-50 text-emerald-700'
-                                    : 'bg-amber-50 text-amber-700'
+                                    ? 'border border-emerald-200 bg-emerald-50 text-emerald-700'
+                                    : 'border border-amber-200 bg-amber-50 text-amber-700'
                                 }`}
                               >
                                 {item.status}
                               </span>
                               {item.status === 'LOCKED' && isCredit && (
-                                <span className="block mt-1 text-[10px] text-slate-400">
+                                <span className="mt-1 ml-auto block w-fit rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
                                   {formatUnlockCountdown(item.createdAt)}
                                 </span>
                               )}
@@ -567,11 +574,25 @@ export default function CreatorWalletPage() {
                   value={upiVpa}
                   onChange={(e) => setUpiVpa(e.target.value)}
                   placeholder="e.g. yourname@okhdfcbank"
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs font-medium text-slate-900 focus:bg-white focus:border-slate-400 focus:outline-none transition"
+                  className={`w-full rounded-xl border p-2.5 text-xs font-medium text-slate-900 focus:outline-none transition ${
+                    upiStatus === 'invalid'
+                      ? 'border-rose-300 bg-rose-50/50'
+                      : upiStatus === 'valid'
+                      ? 'border-emerald-300 bg-emerald-50/40'
+                      : 'border-slate-200 bg-slate-50 focus:bg-white focus:border-slate-400'
+                  }`}
                 />
-                <p className="text-[10px] text-slate-400 mt-1">
-                  Supports Google Pay, PhonePe, Paytm, and BHIM UPI IDs.
-                </p>
+                {upiStatus === 'invalid' ? (
+                  <p className="text-[10px] text-rose-600 mt-1">
+                    Enter a valid UPI ID like yourname@okhdfcbank (letters, numbers, dots or dashes before the @).
+                  </p>
+                ) : upiStatus === 'valid' ? (
+                  <p className="text-[10px] text-emerald-600 mt-1">Valid UPI ID format.</p>
+                ) : (
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Supports Google Pay, PhonePe, Paytm, and BHIM UPI IDs.
+                  </p>
+                )}
               </div>
 
               {/* Points to Redeem Field */}
@@ -622,8 +643,8 @@ export default function CreatorWalletPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={isSubmitting || points.settledPoints < 500}
-                  className="w-1/2 rounded-xl bg-slate-900 py-2.5 text-xs font-semibold text-white hover:bg-slate-800 transition shadow-sm disabled:opacity-50"
+                  disabled={isSubmitting || points.settledPoints < 500 || upiStatus !== 'valid'}
+                  className="w-1/2 rounded-xl bg-indigo-600 py-2.5 text-xs font-semibold text-white hover:bg-indigo-700 transition shadow-sm disabled:opacity-50"
                 >
                   {isSubmitting ? 'Submitting...' : 'Confirm Withdrawal'}
                 </button>
