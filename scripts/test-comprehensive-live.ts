@@ -8,17 +8,17 @@ dotenv.config();
 import jwt from 'jsonwebtoken';
 import { prisma, UserRole, PointsStatus, PointsTransactionType } from '@evoc/database';
 
-function getRequiredEnv(key: string, alternateKey?: string): string {
-  const val = process.env[key] || (alternateKey ? process.env[alternateKey] : undefined);
+function getRequiredEnv(key: string): string {
+  const val = process.env[key];
   if (!val || val.trim() === '') {
-    throw new Error(`[Comprehensive Test] Missing required environment variable: '${key}'${alternateKey ? ` or '${alternateKey}'` : ''}. Please define it in your .env file.`);
+    throw new Error(`[Comprehensive Test] Missing required environment variable: '${key}'. Please define it in your .env file.`);
   }
   return val.trim();
 }
 
 const API = 'http://localhost:4000';
 const jwtSecret = getRequiredEnv('JWT_SECRET');
-const r2AccountId = getRequiredEnv('R2_ACCOUNT_ID', 'CLOUDFLARE_ACCOUNT_ID');
+const r2AccountId = getRequiredEnv('R2_ACCOUNT_ID');
 const r2BucketName = getRequiredEnv('R2_BUCKET_NAME');
 
 async function api(
