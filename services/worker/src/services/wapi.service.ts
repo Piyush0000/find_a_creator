@@ -82,7 +82,7 @@ export class WapiService {
 
       const data: any = await response.json().catch(() => ({}));
 
-      if (!response.ok) {
+      if (!response.ok || data?.result === 'failed') {
         const errorMsg = data?.message || data?.error || `HTTP ${response.status}`;
         console.error(`❌ [WAPI] API error for ${formattedPhone}:`, errorMsg);
         return { success: false, error: errorMsg, data };

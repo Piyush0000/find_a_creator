@@ -49,8 +49,8 @@ test_payload() {
     -d '{
       "creatorId": "'"$CREATOR_ID"'",
       "productName": "Glow Skincare Serum",
-      "productLink": "https://glowskincare.in/products/serum",
       "productPrice": 799,
+      "productUrl": "https://tarayu.com/products/glow-serum",
       "scriptGuidelines": "'"$guidelines"'",
       "videoHooks": "'"$hook"'",
       "aspectRatio": "9:16",

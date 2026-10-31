@@ -11,9 +11,18 @@ import {
   Copy,
   Film,
   Download,
-  Truck
+  FileText,
+  X,
+  FileEdit,
+  Sparkles,
+  Smartphone,
+  ArrowUpRight,
+  Video,
+  ShieldCheck,
+  Eye
 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
+import { clearSession } from '@/lib/session';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -21,7 +30,6 @@ type CollabStatus =
   | 'BRIEF_SUBMITTED'
   | 'EVOC_APPROVED'
   | 'CREATOR_ACCEPTED'
-  | 'SAMPLE_DISPATCHED'
   | 'DRAFT_PENDING_EVOC'
   | 'DRAFT_REVISION_REQUESTED'
   | 'DRAFT_PENDING_MERCHANT'
@@ -38,13 +46,14 @@ interface MerchantCollab {
   aspectRatio: string;
   commissionPointsPerSale: number;
   status: CollabStatus;
+  productUrl?: string | null;
+  scriptGuidelines?: string;
+  videoHooks?: string | null;
+  merchantReviewNotes?: string | null;
   draftVideoUrl?: string | null;
   draftStatusNotice?: string;
   approvedVideoUrl?: string | null;
   metaAdsUtmLink?: string;
-  courierName?: string | null;
-  trackingNumber?: string | null;
-  trackingUrl?: string | null;
   createdAt: string;
   creator: {
     id: string;
@@ -57,7 +66,6 @@ const STATUS_META: Record<CollabStatus, { label: string; className: string }> = 
   BRIEF_SUBMITTED: { label: 'Brief Sent', className: 'bg-slate-100 text-slate-700 border-slate-200' },
   EVOC_APPROVED: { label: 'Brief Cleared', className: 'bg-slate-100 text-slate-700 border-slate-200' },
   CREATOR_ACCEPTED: { label: 'Creator Accepted', className: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
-  SAMPLE_DISPATCHED: { label: 'Sample in Transit', className: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
   DRAFT_PENDING_EVOC: { label: 'EVOC Quality Review', className: 'bg-amber-50 text-amber-700 border-amber-200' },
   DRAFT_REVISION_REQUESTED: { label: 'Revision in Progress', className: 'bg-amber-50 text-amber-700 border-amber-200' },
   DRAFT_PENDING_MERCHANT: { label: 'Awaiting Your Review', className: 'bg-violet-50 text-violet-700 border-violet-200' },
@@ -73,7 +81,7 @@ type CollabTab = 'active' | 'review' | 'delivered';
 const TAB_GROUPS: Record<CollabTab, { label: string; statuses: CollabStatus[] }> = {
   active: {
     label: 'Active Briefs',
-    statuses: ['BRIEF_SUBMITTED', 'EVOC_APPROVED', 'CREATOR_ACCEPTED', 'SAMPLE_DISPATCHED', 'DECLINED']
+    statuses: ['BRIEF_SUBMITTED', 'EVOC_APPROVED', 'CREATOR_ACCEPTED']
   },
   review: {
     label: 'Under Review',
@@ -97,13 +105,14 @@ export default function MerchantCollabsPage() {
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // Sample Dispatch Form State
-  const [shippingId, setShippingId] = useState<string | null>(null);
-  const [courierName, setCourierName] = useState('');
-  const [trackingNumber, setTrackingNumber] = useState('');
-  const [trackingUrl, setTrackingUrl] = useState('');
-  const [shippingError, setShippingError] = useState<string | null>(null);
-  const [isShipping, setIsShipping] = useState(false);
+  // Brief & Script Details Modal
+  const [selectedCollabDetail, setSelectedCollabDetail] = useState<MerchantCollab | null>(null);
+  const [copiedScript, setCopiedScript] = useState(false);
+
+  // Corrections / Revision Modal
+  const [revisionCollab, setRevisionCollab] = useState<MerchantCollab | null>(null);
+  const [revisionNotes, setRevisionNotes] = useState('');
+  const [isSubmittingRevision, setIsSubmittingRevision] = useState(false);
 
   // Load Merchant Collabs Feed (Strict Route Guard)
   const loadCollabs = useCallback(async () => {
@@ -123,8 +132,8 @@ export default function MerchantCollabsPage() {
         headers: { Authorization: `Bearer ${activeToken}` }
       });
 
-      if (res.status === 401 || res.status === 403) {
-        localStorage.removeItem('evoc_merchant_token');
+      if (res.status === 401 || res.status === 403 || res.status === 404) {
+        clearSession();
         router.push('/login?redirect=/collabs');
         return;
       }
@@ -177,6 +186,10 @@ export default function MerchantCollabsPage() {
       }
 
       showToast('Draft approved! Your final ad asset is ready in Delivered Assets.');
+      if (selectedCollabDetail?.id === collabId) {
+        setSelectedCollabDetail(null);
+      }
+      setActiveTab('delivered');
       await loadCollabs();
     } catch (err: any) {
       showToast(err.message || 'Network error while approving draft', 'error');
@@ -185,49 +198,45 @@ export default function MerchantCollabsPage() {
     }
   };
 
-  const openShippingForm = (collabId: string) => {
-    setShippingId(collabId);
-    setCourierName('');
-    setTrackingNumber('');
-    setTrackingUrl('');
-    setShippingError(null);
-  };
-
-  const handleMarkSampleShipped = async (collabId: string) => {
-    if (courierName.trim().length < 2 || trackingNumber.trim().length < 3) {
-      setShippingError('Enter the courier name and tracking number.');
+  const handleRequestCorrections = async () => {
+    if (!revisionCollab) return;
+    if (!revisionNotes.trim()) {
+      showToast('Please specify the corrections or adjustments needed.', 'error');
       return;
     }
 
-    setIsShipping(true);
-    setShippingError(null);
+    setIsSubmittingRevision(true);
     try {
-      const res = await fetch(`${API_BASE}/api/collabs/${collabId}/sample-dispatched`, {
+      const activeToken = token || localStorage.getItem('evoc_merchant_token') || localStorage.getItem('evoc_token');
+      const res = await fetch(`${API_BASE}/api/collabs/${revisionCollab.id}/merchant-approval`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {})
+          ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {})
         },
         body: JSON.stringify({
-          courierName: courierName.trim(),
-          trackingNumber: trackingNumber.trim(),
-          ...(trackingUrl.trim() ? { trackingUrl: trackingUrl.trim() } : {})
+          approved: false,
+          notes: revisionNotes.trim()
         })
       });
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        setShippingError(errData.error || 'Failed to record sample dispatch');
+        showToast(errData.error || 'Failed to submit corrections', 'error');
         return;
       }
 
-      setShippingId(null);
-      showToast('Sample shipment recorded. The creator can now see the tracking details.');
+      showToast('Corrections sent to creator. Status moved to Revision in Progress.');
+      setRevisionCollab(null);
+      setRevisionNotes('');
+      if (selectedCollabDetail?.id === revisionCollab.id) {
+        setSelectedCollabDetail(null);
+      }
       await loadCollabs();
     } catch (err: any) {
-      setShippingError(err.message || 'Network error while recording dispatch');
+      showToast(err.message || 'Network error while requesting corrections', 'error');
     } finally {
-      setIsShipping(false);
+      setIsSubmittingRevision(false);
     }
   };
 
@@ -245,13 +254,12 @@ export default function MerchantCollabsPage() {
 
   return (
     <div className="text-slate-900 pb-12">
-
       <main className="mx-auto max-w-7xl px-6 py-8 space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-900">Collabs Hub</h1>
             <p className="mt-1 text-xs text-slate-500">
-              Track every brief from dispatch to final ad asset handoff.
+              Track and inspect every brief from dispatch to final ad asset handoff.
             </p>
           </div>
           <button
@@ -326,168 +334,416 @@ export default function MerchantCollabsPage() {
             )}
 
             <div className="space-y-3">
-            {collabs.filter((c) => TAB_GROUPS[activeTab].statuses.includes(c.status)).map((collab) => {
-              const meta = STATUS_META[collab.status] || STATUS_META.BRIEF_SUBMITTED;
-              const finalVideo = collab.approvedVideoUrl || collab.draftVideoUrl;
-              return (
-                <div
-                  key={collab.id}
-                  className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.03)] space-y-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-                    <div>
-                      <h3 className="text-sm font-bold text-slate-900">{collab.productName}</h3>
-                      <p className="text-[11px] text-slate-500 mt-0.5">
-                        {collab.creator?.displayAlias} • {collab.deliverableType} • {collab.aspectRatio} •{' '}
-                        {collab.commissionPointsPerSale} pts/sale
-                      </p>
-                      <p className="text-[10px] text-slate-400 mt-0.5">
-                        Sent {new Date(collab.createdAt).toLocaleDateString()}
-                      </p>
-                    </div>
-                    <span
-                      className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] font-semibold self-start ${meta.className}`}
-                    >
-                      {meta.label}
-                    </span>
-                  </div>
-
-                  {/* Creator accepted: merchant ships the product sample */}
-                  {collab.status === 'CREATOR_ACCEPTED' &&
-                    (shippingId === collab.id ? (
-                      <div className="rounded-xl border border-indigo-200 bg-indigo-50/50 p-3 space-y-2.5">
-                        <p className="text-[11px] font-semibold text-indigo-800">Sample shipment details</p>
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                          <input
-                            value={courierName}
-                            onChange={(e) => setCourierName(e.target.value)}
-                            placeholder="Courier (e.g. BlueDart)"
-                            className="rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-900 focus:border-slate-400 focus:outline-none"
-                          />
-                          <input
-                            value={trackingNumber}
-                            onChange={(e) => setTrackingNumber(e.target.value)}
-                            placeholder="Tracking number"
-                            className="rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-900 focus:border-slate-400 focus:outline-none"
-                          />
-                          <input
-                            value={trackingUrl}
-                            onChange={(e) => setTrackingUrl(e.target.value)}
-                            placeholder="Tracking link (optional)"
-                            className="rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-900 focus:border-slate-400 focus:outline-none"
-                          />
-                        </div>
-                        {shippingError && <p className="text-[11px] text-rose-700">{shippingError}</p>}
+              {collabs.filter((c) => TAB_GROUPS[activeTab].statuses.includes(c.status)).map((collab) => {
+                const meta = STATUS_META[collab.status] || STATUS_META.BRIEF_SUBMITTED;
+                const finalVideo = collab.approvedVideoUrl || collab.draftVideoUrl;
+                return (
+                  <div
+                    key={collab.id}
+                    onClick={() => setSelectedCollabDetail(collab)}
+                    className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.03)] space-y-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md hover:border-indigo-300 cursor-pointer group"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                      <div>
                         <div className="flex items-center gap-2">
+                          <h3 className="text-sm font-bold text-slate-900 group-hover:text-indigo-600 transition">
+                            {collab.productName}
+                          </h3>
+                          <span className="text-xs text-slate-400 font-normal">· ₹{collab.productPrice}</span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          Creator: <strong className="text-slate-700">{collab.creator?.displayAlias}</strong> ({collab.creator?.category}) • {collab.deliverableType} • {collab.aspectRatio} •{' '}
+                          <span className="font-semibold text-indigo-600">+{collab.commissionPointsPerSale} pts/sale</span>
+                        </p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">
+                          Sent {new Date(collab.createdAt).toLocaleDateString()}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2 self-start">
+                        <span
+                          className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] font-semibold ${meta.className}`}
+                        >
+                          {meta.label}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Brief / Script preview banner */}
+                    <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-100">
+                      <span className="inline-flex items-center text-indigo-600 font-semibold group-hover:underline">
+                        <FileText className="h-3 w-3 mr-1" /> View Full Brief & Script Guidelines
+                      </span>
+                      <span className="text-slate-400 text-[10px]">Click card to inspect</span>
+                    </div>
+
+                    {/* Creator accepted: Creator is producing the video */}
+                    {collab.status === 'CREATOR_ACCEPTED' && (
+                      <div className="flex items-center space-x-2 rounded-xl bg-indigo-50/60 border border-indigo-200 p-3 text-[11px] text-indigo-800">
+                        <Check className="h-3.5 w-3.5 text-indigo-600 flex-shrink-0" />
+                        <span>The creator accepted your brief and is currently shooting your 9:16 UGC video ad.</span>
+                      </div>
+                    )}
+
+                    {/* Draft stays private until EVOC Ops clears it */}
+                    {collab.status === 'DRAFT_PENDING_EVOC' && (
+                      <div className="flex items-center space-x-2 rounded-xl bg-slate-50 border border-slate-200/80 p-3 text-[11px] text-slate-500">
+                        <Lock className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
+                        <span>Locked — Under EVOC Ops Quality Check (Anti-leak stage 1 review)</span>
+                      </div>
+                    )}
+
+                    {/* Revision in Progress */}
+                    {collab.status === 'DRAFT_REVISION_REQUESTED' && (
+                      <div className="flex flex-col gap-1 rounded-xl bg-amber-50/70 border border-amber-200 p-3 text-[11px] text-amber-900">
+                        <div className="flex items-center gap-1.5 font-semibold text-amber-800">
+                          <AlertCircle className="h-3.5 w-3.5 text-amber-600 flex-shrink-0" />
+                          <span>Corrections in Progress</span>
+                        </div>
+                        {collab.merchantReviewNotes && (
+                          <p className="text-amber-800/90 pl-5 leading-relaxed italic">
+                            &ldquo;{collab.merchantReviewNotes}&rdquo;
+                          </p>
+                        )}
+                        <p className="text-amber-700 text-[10px] pl-5 mt-0.5">
+                          The creator has been notified with your corrections and is producing an updated draft.
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Awaiting Merchant Review: Allows Preview, Approval, and Correction Request */}
+                    {collab.status === 'DRAFT_PENDING_MERCHANT' && (
+                      <div
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl bg-violet-50/70 border border-violet-200 p-3.5"
+                      >
+                        <div>
+                          <p className="text-xs font-semibold text-violet-900">
+                            EVOC Ops cleared this video draft!
+                          </p>
+                          <p className="text-[11px] text-violet-700 mt-0.5">
+                            Review the video below. You can approve to unlock the final asset, or request corrections if needed.
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          {collab.draftVideoUrl && (
+                            <a
+                              href={collab.draftVideoUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center space-x-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition"
+                            >
+                              <Eye className="h-3.5 w-3.5" />
+                              <span>Preview Video</span>
+                            </a>
+                          )}
                           <button
-                            onClick={() => handleMarkSampleShipped(collab.id)}
-                            disabled={isShipping}
-                            className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 transition disabled:opacity-50"
+                            onClick={() => {
+                              setRevisionCollab(collab);
+                              setRevisionNotes('');
+                            }}
+                            className="inline-flex items-center space-x-1 rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 transition"
                           >
-                            {isShipping ? 'Saving...' : 'Confirm Shipment'}
+                            <FileEdit className="h-3.5 w-3.5" />
+                            <span>Request Corrections</span>
                           </button>
                           <button
-                            onClick={() => setShippingId(null)}
-                            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 transition"
+                            onClick={() => handleApproveDraft(collab.id)}
+                            disabled={approvingId === collab.id}
+                            className="inline-flex items-center space-x-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 transition disabled:opacity-50"
                           >
-                            Cancel
+                            <Check className="h-3.5 w-3.5" />
+                            <span>{approvingId === collab.id ? 'Approving...' : 'Approve Asset'}</span>
                           </button>
                         </div>
                       </div>
-                    ) : (
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl bg-indigo-50/60 border border-indigo-200 p-3">
-                        <p className="text-[11px] text-indigo-800">
-                          The creator accepted your brief. Ship them a product sample and add the tracking details.
-                        </p>
-                        <button
-                          onClick={() => openShippingForm(collab.id)}
-                          className="inline-flex items-center space-x-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 transition flex-shrink-0"
-                        >
-                          <Truck className="h-3.5 w-3.5" />
-                          <span>Mark Sample Shipped</span>
-                        </button>
-                      </div>
-                    ))}
+                    )}
 
-                  {collab.status === 'SAMPLE_DISPATCHED' && collab.trackingNumber && (
-                    <div className="flex items-center space-x-2 rounded-xl bg-slate-50 border border-slate-200/80 p-3 text-[11px] text-slate-600">
-                      <Truck className="h-3.5 w-3.5 text-indigo-600 flex-shrink-0" />
-                      <span>
-                        {collab.courierName}: <span className="font-mono">{collab.trackingNumber}</span>
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Draft stays private until EVOC Ops clears it */}
-                  {(collab.status === 'DRAFT_PENDING_EVOC' || collab.status === 'DRAFT_REVISION_REQUESTED') &&
-                    collab.draftStatusNotice && (
-                    <div className="flex items-center space-x-2 rounded-xl bg-slate-50 border border-slate-200/80 p-3 text-[11px] text-slate-500">
-                      <Lock className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
-                      <span>Locked — Under EVOC Ops Quality Check</span>
-                    </div>
-                  )}
-
-                  {collab.status === 'DRAFT_PENDING_MERCHANT' && (
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl bg-violet-50/60 border border-violet-200 p-3">
-                      <p className="text-[11px] text-violet-800">
-                        EVOC Ops cleared this draft. Review it and approve to receive the final ad asset.
-                      </p>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        {collab.draftVideoUrl && (
-                          <a
-                            href={collab.draftVideoUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition"
+                    {/* Delivered Asset Link & Meta Ads UTM */}
+                    {collab.metaAdsUtmLink && (
+                      <div
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex flex-col sm:flex-row sm:items-center gap-2 rounded-xl bg-emerald-50/60 border border-emerald-200 p-3"
+                      >
+                        <code className="flex-1 text-[11px] text-emerald-800 break-all">{collab.metaAdsUtmLink}</code>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <button
+                            onClick={() => handleCopyUtm(collab)}
+                            className="inline-flex items-center space-x-1 rounded-lg border border-emerald-200 bg-white px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50 transition"
                           >
-                            View Draft
-                          </a>
-                        )}
-                        <button
-                          onClick={() => handleApproveDraft(collab.id)}
-                          disabled={approvingId === collab.id}
-                          className="inline-flex items-center space-x-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 transition disabled:opacity-50"
-                        >
-                          <Check className="h-3.5 w-3.5" />
-                          <span>{approvingId === collab.id ? 'Approving...' : 'Approve Draft'}</span>
-                        </button>
+                            <Copy className="h-3.5 w-3.5" />
+                            <span>{copiedId === collab.id ? 'Copied' : 'Copy Meta Ads UTM Link'}</span>
+                          </button>
+                          {finalVideo && (
+                            <a
+                              href={finalVideo}
+                              download
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center space-x-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 transition"
+                            >
+                              <Download className="h-3.5 w-3.5" />
+                              <span>Download MP4</span>
+                            </a>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  )}
-
-                  {collab.metaAdsUtmLink && (
-                    <div className="flex flex-col sm:flex-row sm:items-center gap-2 rounded-xl bg-emerald-50/60 border border-emerald-200 p-3">
-                      <code className="flex-1 text-[11px] text-emerald-800 break-all">{collab.metaAdsUtmLink}</code>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        <button
-                          onClick={() => handleCopyUtm(collab)}
-                          className="inline-flex items-center space-x-1 rounded-lg border border-emerald-200 bg-white px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50 transition"
-                        >
-                          <Copy className="h-3.5 w-3.5" />
-                          <span>{copiedId === collab.id ? 'Copied' : 'Copy Meta Ads UTM Link'}</span>
-                        </button>
-                        {finalVideo && (
-                          <a
-                            href={finalVideo}
-                            download
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center space-x-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 transition"
-                          >
-                            <Download className="h-3.5 w-3.5" />
-                            <span>Download MP4</span>
-                          </a>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
       </main>
+
+      {/* Comprehensive Brief & Script Inspection Modal */}
+      {selectedCollabDetail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="w-full max-w-2xl rounded-2xl bg-white border border-slate-200 shadow-2xl p-6 relative my-8 max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-start justify-between pb-4 border-b border-slate-100">
+              <div className="pr-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs font-bold text-indigo-600 uppercase tracking-wider bg-indigo-50 border border-indigo-100 px-2.5 py-0.5 rounded-full">
+                    Creator: {selectedCollabDetail.creator?.displayAlias}
+                  </span>
+                  <span className="text-[11px] font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full">
+                    {STATUS_META[selectedCollabDetail.status]?.label || selectedCollabDetail.status}
+                  </span>
+                </div>
+                <h3 className="text-lg font-bold text-slate-900 leading-snug">{selectedCollabDetail.productName}</h3>
+              </div>
+              <button
+                onClick={() => setSelectedCollabDetail(null)}
+                className="h-8 w-8 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 flex items-center justify-center transition flex-shrink-0"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="mt-4 space-y-5 overflow-y-auto pr-1 flex-1 text-slate-800">
+              {/* Specs Strip */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                <div className="rounded-xl border border-slate-200/80 bg-slate-50/80 p-3">
+                  <span className="text-[11px] font-medium text-slate-500">Retail Price</span>
+                  <p className="text-sm font-bold text-slate-900 mt-0.5">₹{selectedCollabDetail.productPrice}</p>
+                </div>
+                <div className="rounded-xl border border-indigo-200/80 bg-indigo-50/50 p-3">
+                  <span className="text-[11px] font-medium text-indigo-600">Commission</span>
+                  <p className="text-sm font-bold text-indigo-700 mt-0.5">+{selectedCollabDetail.commissionPointsPerSale} pts/sale</p>
+                </div>
+                <div className="rounded-xl border border-slate-200/80 bg-slate-50/80 p-3">
+                  <span className="text-[11px] font-medium text-slate-500">Deliverable</span>
+                  <p className="text-sm font-bold text-slate-900 mt-0.5">{selectedCollabDetail.deliverableType}</p>
+                </div>
+                <div className="rounded-xl border border-slate-200/80 bg-slate-50/80 p-3">
+                  <span className="text-[11px] font-medium text-slate-500">Aspect Ratio</span>
+                  <p className="text-sm font-bold text-slate-900 mt-0.5">{selectedCollabDetail.aspectRatio} Vertical</p>
+                </div>
+              </div>
+
+              {/* Product URL */}
+              {selectedCollabDetail.productUrl && (
+                <div className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-3.5 space-y-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-slate-900 flex items-center gap-1.5">
+                      <Sparkles className="h-3.5 w-3.5 text-indigo-600" />
+                      Product URL
+                    </span>
+                    <span className="text-[10px] font-semibold text-indigo-700 bg-white border border-indigo-200 px-2 py-0.5 rounded-full">
+                      Hidden from Creator
+                    </span>
+                  </div>
+                  <p className="text-xs text-indigo-900 font-mono break-all pt-0.5">
+                    {selectedCollabDetail.productUrl}
+                  </p>
+                </div>
+              )}
+
+              {/* Script Guidelines */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                    <FileText className="h-3.5 w-3.5 text-indigo-600" />
+                    Complete Script Guidelines & Talking Points
+                  </label>
+                  <button
+                    onClick={() => {
+                      if (selectedCollabDetail.scriptGuidelines) {
+                        navigator.clipboard.writeText(selectedCollabDetail.scriptGuidelines);
+                        setCopiedScript(true);
+                        setTimeout(() => setCopiedScript(false), 2000);
+                      }
+                    }}
+                    className="inline-flex items-center text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 transition"
+                  >
+                    {copiedScript ? (
+                      <>
+                        <Check className="h-3 w-3 mr-1 text-emerald-600" />
+                        <span className="text-emerald-600">Copied to clipboard</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="h-3 w-3 mr-1" />
+                        <span>Copy Script</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 text-xs text-slate-800 whitespace-pre-wrap leading-relaxed max-h-60 overflow-y-auto font-sans shadow-inner">
+                  {selectedCollabDetail.scriptGuidelines || 'No detailed script provided.'}
+                </div>
+              </div>
+
+              {/* Video Hooks */}
+              {selectedCollabDetail.videoHooks && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-900 mb-1.5 flex items-center gap-1.5">
+                    <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+                    Target Hooks & Angles
+                  </label>
+                  <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-3.5 text-xs text-amber-900 whitespace-pre-wrap leading-relaxed">
+                    {selectedCollabDetail.videoHooks}
+                  </div>
+                </div>
+              )}
+
+              {/* Merchant Previous Notes (if any) */}
+              {selectedCollabDetail.merchantReviewNotes && (
+                <div>
+                  <label className="block text-xs font-bold text-amber-900 mb-1.5 flex items-center gap-1.5">
+                    <FileEdit className="h-3.5 w-3.5 text-amber-600" />
+                    Your Requested Corrections
+                  </label>
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-3.5 text-xs text-amber-900 whitespace-pre-wrap leading-relaxed">
+                    {selectedCollabDetail.merchantReviewNotes}
+                  </div>
+                </div>
+              )}
+
+              {/* Video Preview (if unlocked) */}
+              {(selectedCollabDetail.approvedVideoUrl || selectedCollabDetail.draftVideoUrl) && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3.5 space-y-2">
+                  <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                    <Video className="h-3.5 w-3.5 text-indigo-600" />
+                    Uploaded Video Deliverable
+                  </span>
+                  <div className="flex items-center justify-between text-xs bg-white border border-slate-200 rounded-lg p-2.5">
+                    <span className="truncate text-slate-600 max-w-sm">
+                      {selectedCollabDetail.approvedVideoUrl || selectedCollabDetail.draftVideoUrl}
+                    </span>
+                    <a
+                      href={selectedCollabDetail.approvedVideoUrl || selectedCollabDetail.draftVideoUrl || '#'}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="ml-2 inline-flex items-center text-xs font-semibold text-indigo-600 hover:underline flex-shrink-0"
+                    >
+                      Preview Video <ArrowUpRight className="h-3 w-3 ml-0.5" />
+                    </a>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between gap-3">
+              <button
+                onClick={() => setSelectedCollabDetail(null)}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition"
+              >
+                Close View
+              </button>
+
+              {selectedCollabDetail.status === 'DRAFT_PENDING_MERCHANT' && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      const collabToRevise = selectedCollabDetail;
+                      setSelectedCollabDetail(null);
+                      setRevisionCollab(collabToRevise);
+                      setRevisionNotes('');
+                    }}
+                    className="rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100 transition flex items-center gap-1"
+                  >
+                    <FileEdit className="h-3.5 w-3.5" />
+                    Request Corrections
+                  </button>
+                  <button
+                    onClick={() => handleApproveDraft(selectedCollabDetail.id)}
+                    disabled={approvingId === selectedCollabDetail.id}
+                    className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-700 transition flex items-center gap-1"
+                  >
+                    <Check className="h-3.5 w-3.5" />
+                    <span>{approvingId === selectedCollabDetail.id ? 'Approving...' : 'Approve Asset'}</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Request Corrections Modal */}
+      {revisionCollab && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 backdrop-blur-sm p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white border border-slate-200 shadow-2xl p-6 relative">
+            <div className="flex items-start justify-between pb-4 border-b border-slate-100">
+              <div>
+                <span className="text-[11px] font-bold text-rose-600 uppercase tracking-wider">
+                  Request Corrections
+                </span>
+                <h3 className="text-base font-bold text-slate-900 mt-0.5">{revisionCollab.productName}</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Sent to creator: <strong>{revisionCollab.creator?.displayAlias}</strong>
+                </p>
+              </div>
+              <button
+                onClick={() => setRevisionCollab(null)}
+                className="h-8 w-8 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 flex items-center justify-center transition"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Describe the corrections or adjustments needed:
+                </label>
+                <textarea
+                  rows={4}
+                  value={revisionNotes}
+                  onChange={(e) => setRevisionNotes(e.target.value)}
+                  placeholder="e.g., Please slow down the product application in the hook, make sure the packaging label is fully visible, and speak a bit louder during the benefit callout."
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-800 placeholder:text-slate-400 focus:bg-white focus:border-slate-400 focus:outline-none leading-relaxed"
+                />
+                <p className="text-[11px] text-slate-400 mt-1">
+                  The creator will receive these exact revision instructions on their dashboard and can re-record and upload a new draft.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 pt-4 border-t border-slate-100 flex items-center justify-end gap-2">
+              <button
+                onClick={() => setRevisionCollab(null)}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRequestCorrections}
+                disabled={isSubmittingRevision || !revisionNotes.trim()}
+                className="rounded-xl bg-rose-600 px-4 py-2 text-xs font-semibold text-white hover:bg-rose-700 transition disabled:opacity-50 flex items-center gap-1.5"
+              >
+                <FileEdit className="h-3.5 w-3.5" />
+                <span>{isSubmittingRevision ? 'Sending...' : 'Send Revision Request'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

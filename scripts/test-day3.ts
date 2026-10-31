@@ -77,8 +77,8 @@ async function run() {
     body: JSON.stringify({
       creatorId: creatorUser.creatorProfile!.id,
       productName: 'Vitamin C Face Wash',
-      productLink: 'https://glowskincare.in/products/facewash',
       productPrice: 599,
+      productUrl: 'https://tarayu.com/products/vitamin-c-face-wash',
       scriptGuidelines: 'Show morning routine with the face wash, lather texture, and before-after glow.',
       videoHooks: 'Your face wash is making you break out — here is why!',
       aspectRatio: '9:16',

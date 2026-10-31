@@ -51,7 +51,6 @@ authRouter.post('/register', async (req, res) => {
               merchantProfile: {
                 create: {
                   brandName: data.brandName || normalizedEmail.split('@')[0],
-                  websiteUrl: data.websiteUrl || null,
                   subscriptionPlan: SubscriptionPlan.STARTER,
                   subscriptionStatus: SubscriptionStatus.ACTIVE,
                   subscriptionExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)

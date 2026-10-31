@@ -3,7 +3,7 @@ import { prisma, PointsStatus } from '@evoc/database';
 // ---------------------------------------------------------------------------
 // 14-Day Financial Settlement Cron
 // Settles all LOCKED points older than 14 days → marks them SETTLED
-// so creators can then request payouts.
+// so creators can then redeem them for shopping vouchers on partner stores.
 // ---------------------------------------------------------------------------
 
 const SETTLEMENT_DAYS = 14;

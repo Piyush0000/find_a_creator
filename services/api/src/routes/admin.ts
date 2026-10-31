@@ -64,39 +64,6 @@ adminRouter.get(
 );
 
 // ============================================================================
-// GET /api/admin/payouts — List all pending payout requests
-// ============================================================================
-adminRouter.get(
-  '/payouts',
-  requireAuth,
-  requireRole(UserRole.SUPER_ADMIN),
-  async (req, res) => {
-    try {
-      const status = (req.query.status as string) || 'PENDING_UTR';
-
-      const payouts = await prisma.payoutRequest.findMany({
-        where: { status: status as any },
-        include: {
-          creator: {
-            select: {
-              displayAlias: true,
-              category: true,
-              pointsBalance: true
-            }
-          }
-        },
-        orderBy: { createdAt: 'asc' } // FIFO — oldest first
-      });
-
-      res.json({ payouts, totalCount: payouts.length, filterStatus: status });
-    } catch (error: any) {
-      console.error('Admin payouts list error:', error);
-      res.status(500).json({ error: error.message || 'Failed to list payouts' });
-    }
-  }
-);
-
-// ============================================================================
 // GET /api/admin/security-flags — Security Flag Queue (blocked contact leaks)
 // ============================================================================
 adminRouter.get(

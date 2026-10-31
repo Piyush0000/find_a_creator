@@ -22,7 +22,6 @@ import { creatorsRouter } from './routes/creators.js';
 import { collabsRouter } from './routes/collabs.js';
 import { webhooksRouter } from './routes/webhooks.js';
 import { mediaRouter } from './routes/media.js';
-import { payoutsRouter } from './routes/payouts.js';
 import { adminRouter } from './routes/admin.js';
 import { authLimiter } from './middleware/rateLimiter.js';
 
@@ -45,7 +44,6 @@ app.use('/api/creators', creatorsRouter);
 app.use('/api/collabs', collabsRouter);
 app.use('/api/webhooks', webhooksRouter);
 app.use('/api/media', mediaRouter);
-app.use('/api/payouts', payoutsRouter);
 app.use('/api/admin', adminRouter);
 
 app.listen(PORT, () => {

@@ -21,7 +21,6 @@ export enum CollabStatus {
   BRIEF_SUBMITTED = 'BRIEF_SUBMITTED',             // Dispatched to Creator & Admin
   EVOC_APPROVED = 'EVOC_APPROVED',                 // EVOC Ops cleared the brief
   CREATOR_ACCEPTED = 'CREATOR_ACCEPTED',           // Creator agreed to terms
-  SAMPLE_DISPATCHED = 'SAMPLE_DISPATCHED',         // Sample in transit to creator
   DRAFT_PENDING_EVOC = 'DRAFT_PENDING_EVOC',       // 100% PRIVATE: Visible only to EVOC Ops
   DRAFT_REVISION_REQUESTED = 'DRAFT_REVISION_REQUESTED', // EVOC rejected — Creator must fix & re-upload
   DRAFT_PENDING_MERCHANT = 'DRAFT_PENDING_MERCHANT', // STILL PRIVATE: Unlocked for Merchant review
@@ -34,17 +33,11 @@ export enum CollabStatus {
 export enum PointsTransactionType {
   PURCHASE_COMMISSION = 'PURCHASE_COMMISSION',
   MILESTONE_BONUS = 'MILESTONE_BONUS',
-  PAYOUT_REDEEMED = 'PAYOUT_REDEEMED'
+  STORE_REDEMPTION = 'STORE_REDEMPTION'
 }
 
 export enum PointsStatus {
-  LOCKED = 'LOCKED',     // Held during 7-day return/cancellation window
-  SETTLED = 'SETTLED',   // Ready for withdrawal
+  LOCKED = 'LOCKED',     // Held during 14-day return/cancellation window
+  SETTLED = 'SETTLED',   // Ready for store redemption
   CANCELLED = 'CANCELLED' // Customer returned/refunded order
-}
-
-export enum PayoutStatus {
-  PENDING_UTR = 'PENDING_UTR', // Waiting for bank UTR confirmation
-  CLEARED = 'CLEARED',         // Payment confirmed, UTR recorded
-  REJECTED = 'REJECTED'        // Admin rejected payout request
 }

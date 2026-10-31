@@ -11,13 +11,13 @@ import {
   Check,
   User
 } from 'lucide-react';
-import { ANTI_LEAK_PATTERNS, detectLinkLeaks, CreateCollabBriefSchema } from '@evoc/types';
+import { ANTI_LEAK_PATTERNS, CreateCollabBriefSchema } from '@evoc/types';
 
 // Friendly field names for brief validation messages
 const FIELD_LABELS: Record<string, string> = {
   creatorId: 'Creator',
   productName: 'Product name',
-  productLink: 'Product store URL',
+  productUrl: 'Product URL',
   productPrice: 'Retail price',
   scriptGuidelines: 'Script guidelines',
   videoHooks: '3-second hook',
@@ -62,8 +62,8 @@ function BriefFormContent() {
   // Form Fields State
   const [creatorId, setCreatorId] = useState(preselectedCreatorId);
   const [productName, setProductName] = useState('');
-  const [productLink, setProductLink] = useState('');
   const [productPrice, setProductPrice] = useState<number | ''>('');
+  const [productUrl, setProductUrl] = useState('');
   const [aspectRatio, setAspectRatio] = useState<'9:16' | '16:9' | '1:1'>('9:16');
   const [commissionPoints, setCommissionPoints] = useState<number | ''>('');
 
@@ -75,7 +75,6 @@ function BriefFormContent() {
   const [hookViolations, setHookViolations] = useState<string[]>([]);
   const [scriptViolations, setScriptViolations] = useState<string[]>([]);
   const [productNameViolations, setProductNameViolations] = useState<string[]>([]);
-  const [productLinkViolations, setProductLinkViolations] = useState<string[]>([]);
 
   // Submission State
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -131,19 +130,14 @@ function BriefFormContent() {
     setScriptViolations(evaluateAntiLeak(val));
   };
 
-  // Evaluate Product Name & Link (contact details can be hidden here too)
+  // Evaluate Product Name (contact details can be hidden here too)
   const handleProductNameChange = (val: string) => {
     setProductName(val);
     setProductNameViolations(evaluateAntiLeak(val));
   };
 
-  const handleProductLinkChange = (val: string) => {
-    setProductLink(val);
-    setProductLinkViolations(detectLinkLeaks(val));
-  };
-
   const allDetectedViolations = Array.from(
-    new Set([...productNameViolations, ...productLinkViolations, ...hookViolations, ...scriptViolations])
+    new Set([...productNameViolations, ...hookViolations, ...scriptViolations])
   );
   const hasAnyViolations = allDetectedViolations.length > 0;
 
@@ -160,8 +154,8 @@ function BriefFormContent() {
     const briefPayload = {
       creatorId,
       productName,
-      productLink,
       productPrice: Number(productPrice),
+      productUrl: productUrl.trim(),
       scriptGuidelines,
       videoHooks,
       aspectRatio,
@@ -255,7 +249,7 @@ function BriefFormContent() {
                 {submitSuccess.utmTrackingSlug}
               </div>
               <p className="text-[11px] text-slate-400">
-                Tracking Link: <span className="text-slate-600">{`https://yourstore.com/p?utm_content=${submitSuccess.utmTrackingSlug}`}</span>
+                Turnkey Destination: <span className="text-indigo-600 font-medium break-all">{productUrl.trim() ? `${productUrl.trim()}${productUrl.includes('?') ? '&' : '?'}utm_content=${submitSuccess.utmTrackingSlug}&utm_source=meta&utm_medium=ugc_ad` : `https://yourstore.com/p?utm_content=${submitSuccess.utmTrackingSlug}&utm_source=meta&utm_medium=ugc_ad`}</span>
               </p>
             </div>
 
@@ -272,8 +266,8 @@ function BriefFormContent() {
                   setVideoHooks('');
                   setScriptGuidelines('');
                   setProductName('');
-                  setProductLink('');
                   setProductPrice('');
+                  setProductUrl('');
                   setCommissionPoints('');
                 }}
                 className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition"
@@ -340,7 +334,7 @@ function BriefFormContent() {
             <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.02)] space-y-4">
               <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400">Product Details</h2>
               <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-                <div>
+                <div className="sm:col-span-2">
                   <label className="block text-xs font-semibold text-slate-700 mb-1">Product Name</label>
                   <input
                     type="text"
@@ -357,21 +351,26 @@ function BriefFormContent() {
                   <LeakWarning violations={productNameViolations} />
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Product Store URL</label>
+                <div className="sm:col-span-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-semibold text-slate-700">
+                      Product URL <span className="text-rose-500">*</span>
+                    </label>
+                    <span className="text-[10px] font-semibold text-indigo-600 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-full">
+                      Hidden from Creator • Meta Ads Ready
+                    </span>
+                  </div>
                   <input
                     type="url"
-                    value={productLink}
-                    onChange={(e) => handleProductLinkChange(e.target.value)}
-                    placeholder="https://brand.com/products/item"
-                    className={`w-full rounded-xl border p-2.5 text-xs font-medium transition focus:outline-none ${
-                      productLinkViolations.length > 0
-                        ? 'border-rose-400 bg-rose-50/40 text-rose-900'
-                        : 'border-slate-200 bg-slate-50 text-slate-800 focus:bg-white focus:border-slate-400'
-                    }`}
+                    value={productUrl}
+                    onChange={(e) => setProductUrl(e.target.value)}
+                    placeholder="https://yourbrand.com/products/your-product"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs font-medium text-slate-800 focus:bg-white focus:border-slate-400 focus:outline-none"
                     required
                   />
-                  <LeakWarning violations={productLinkViolations} />
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Paste your product page link. The creator will never see this URL. When the ad is delivered, EVOC generates your turnkey Meta Ads link pointing directly to this product.
+                  </p>
                 </div>
 
                 <div>

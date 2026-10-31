@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { presignLimiter } from '../middleware/rateLimiter.js';
 import {
   generateR2PresignedUrl,
+  uploadStreamToR2,
   MAX_VIDEO_SIZE_BYTES
 } from '../services/r2.service.js';
 
@@ -77,6 +78,53 @@ mediaRouter.post(
       res.status(400).json({
         error: err.message || 'Failed to generate presigned upload URL'
       });
+    }
+  }
+);
+
+// POST /api/media/upload
+// Direct streaming upload to Cloudflare R2 for web browsers (bypasses R2 bucket CORS restrictions)
+mediaRouter.post(
+  '/upload',
+  requireAuth,
+  async (req, res) => {
+    try {
+      const rawFilename = (req.headers['x-filename'] as string) || (req.query.filename as string) || 'video.mp4';
+      let filename = 'video.mp4';
+      try {
+        filename = decodeURIComponent(rawFilename);
+      } catch {
+        filename = rawFilename;
+      }
+      const contentType = (req.headers['content-type'] as string) || 'video/mp4';
+      const folder = (req.headers['x-folder'] as string) || (req.query.folder as string) || 'drafts';
+      const contentLength = parseInt(req.headers['content-length'] || '0', 10);
+
+      if (!contentLength || contentLength <= 0) {
+        return res.status(400).json({ error: 'Missing or empty request body' });
+      }
+
+      if (contentLength > MAX_VIDEO_SIZE_BYTES) {
+        return res.status(400).json({ error: 'File size exceeds 150MB limit' });
+      }
+
+      const result = await uploadStreamToR2({
+        stream: req,
+        contentLength,
+        filename,
+        contentType,
+        folder
+      });
+
+      res.status(200).json({
+        success: true,
+        publicUrl: result.publicUrl,
+        key: result.key,
+        fileSizeBytes: result.fileSizeBytes
+      });
+    } catch (err: any) {
+      console.error('[Media Upload Error]:', err);
+      res.status(500).json({ error: err.message || 'Storage upload failed' });
     }
   }
 );

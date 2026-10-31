@@ -32,7 +32,6 @@ async function main() {
       merchantProfile: {
         create: {
           brandName: 'Glow Skincare D2C',
-          websiteUrl: 'https://glowskincare.in',
           subscriptionPlan: SubscriptionPlan.GROWTH,
           subscriptionStatus: SubscriptionStatus.ACTIVE,
           subscriptionExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)

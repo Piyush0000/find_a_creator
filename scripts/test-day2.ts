@@ -66,8 +66,8 @@ async function run() {
     body: JSON.stringify({
       creatorId: creatorUser.creatorProfile!.id,
       productName: 'Hydrating Face Serum',
-      productLink: 'https://glowskincare.in/products/serum',
       productPrice: 1299,
+      productUrl: 'https://tarayu.com/products/hydrating-face-serum',
       scriptGuidelines: 'Focus on morning routine with 3 drops application on face.',
       videoHooks: 'Stop using serums that dry out your skin after 10 minutes!',
       aspectRatio: '9:16',

@@ -7,7 +7,6 @@ import {
   Coins,
   Clock,
   CheckCircle2,
-  Truck,
   Video,
   Upload,
   Sparkles,
@@ -21,9 +20,15 @@ import {
   X,
   FileCheck2,
   AlertCircle,
-  RefreshCw
+  RefreshCw,
+  FileText,
+  Copy,
+  Check,
+  Eye,
+  ExternalLink
 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
+import { clearSession } from '@/lib/session';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -44,7 +49,6 @@ interface DealItem {
   status:
     | 'BRIEF_SUBMITTED'
     | 'CREATOR_ACCEPTED'
-    | 'SAMPLE_DISPATCHED'
     | 'DRAFT_PENDING_EVOC'
     | 'DRAFT_REVISION_REQUESTED'
     | 'EVOC_APPROVED'
@@ -54,7 +58,13 @@ interface DealItem {
     | 'COMPLETED'
     | 'DECLINED';
   scriptGuidelines: string;
-  courierTracking?: string;
+  videoHooks?: string | null;
+  evocReviewNotes?: string | null;
+  merchantReviewNotes?: string | null;
+  approvedVideoUrl?: string | null;
+  utmTrackingSlug?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
   revisionNotes?: string;
   draftVideoUrl?: string;
 }
@@ -133,8 +143,11 @@ export default function CreatorDashboardPage() {
 
   // Detail Modal for Brief viewing
   const [selectedBriefDetail, setSelectedBriefDetail] = useState<DealItem | null>(null);
+  const [copiedScript, setCopiedScript] = useState(false);
   // Revision feedback boxes the creator has expanded
   const [expandedFeedbackIds, setExpandedFeedbackIds] = useState<string[]>([]);
+  // Pipeline tab filter so user can choose which deals section they want to see
+  const [pipelineTab, setPipelineTab] = useState<'ALL' | 'BRIEFS' | 'PRODUCTION' | 'REVIEW' | 'DELIVERED'>('ALL');
 
   // Initialize Session & Fetch Live Data (Strict Route Guard)
   const initSession = async () => {
@@ -156,8 +169,8 @@ export default function CreatorDashboardPage() {
         headers: { Authorization: `Bearer ${activeToken}` }
       });
 
-      if (pointsRes.status === 401) {
-        localStorage.removeItem('evoc_token');
+      if (pointsRes.status === 401 || pointsRes.status === 403 || pointsRes.status === 404) {
+        clearSession();
         router.push('/login?redirect=/dashboard');
         return;
       }
@@ -209,7 +222,7 @@ export default function CreatorDashboardPage() {
         setDeals((prev) =>
           prev.map((d) => (d.id === dealId ? { ...d, status: 'CREATOR_ACCEPTED' } : d))
         );
-        showToast('Deal accepted! It moved to Sample In Transit.');
+        showToast('Deal accepted! Ready for draft video submission.');
       } else {
         const errData = await res.json().catch(() => ({}));
         showToast(errData.error || 'Failed to accept deal', 'error');
@@ -246,20 +259,56 @@ export default function CreatorDashboardPage() {
     initSession();
   }, []);
 
-  // PUT the raw file to the presigned R2 URL with real progress reporting
-  const uploadFileToR2 = (uploadUrl: string, file: File, onProgress: (percent: number) => void) =>
-    new Promise<void>((resolve, reject) => {
+  // Direct streaming upload to backend API (which streams directly to Cloudflare R2 bucket)
+  // This completely eliminates browser CORS preflight blocks while preserving Cloudflare R2 storage
+  const uploadVideoDirect = (
+    file: File,
+    activeToken: string,
+    onProgress: (percent: number) => void
+  ) =>
+    new Promise<{ publicUrl: string; key: string }>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
-      xhr.open('PUT', uploadUrl);
+      xhr.open('POST', `${API_BASE}/api/media/upload`);
+      if (activeToken) {
+        xhr.setRequestHeader('Authorization', `Bearer ${activeToken}`);
+      }
       xhr.setRequestHeader('Content-Type', file.type);
+      xhr.setRequestHeader('x-filename', encodeURIComponent(file.name));
+      xhr.setRequestHeader('x-folder', 'drafts');
+
       xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable) onProgress((e.loaded / e.total) * 100);
+        if (e.lengthComputable) {
+          const percent = (e.loaded / e.total) * 100;
+          onProgress(Math.min(95, Math.round(percent)));
+        }
       };
-      xhr.onload = () =>
-        xhr.status >= 200 && xhr.status < 300
-          ? resolve()
-          : reject(new Error(`Video upload to storage failed (status ${xhr.status}). Please try again.`));
-      xhr.onerror = () => reject(new Error('Network error while uploading the video. Please try again.'));
+
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const data = JSON.parse(xhr.responseText);
+            if (data.publicUrl) {
+              resolve(data);
+            } else {
+              reject(new Error(data.error || 'Failed to retrieve uploaded video URL.'));
+            }
+          } catch {
+            reject(new Error('Invalid response from storage upload.'));
+          }
+        } else {
+          try {
+            const errData = JSON.parse(xhr.responseText);
+            reject(new Error(errData.error || `Upload failed with status ${xhr.status}`));
+          } catch {
+            reject(new Error(`Upload failed with status ${xhr.status}`));
+          }
+        }
+      };
+
+      xhr.onerror = () => {
+        reject(new Error('Network error while uploading the video. Please verify connection and try again.'));
+      };
+
       xhr.send(file);
     });
 
@@ -287,44 +336,15 @@ export default function CreatorDashboardPage() {
     setUploadProgress(5);
 
     try {
-      const activeToken = token || localStorage.getItem('evoc_token');
+      const activeToken = token || localStorage.getItem('evoc_token') || '';
 
-      // 1. Request a 15-minute presigned R2 PUT URL
-      const presignRes = await fetch(`${API_BASE}/api/media/presigned-url`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {})
-        },
-        body: JSON.stringify({
-          filename: file.name,
-          contentType: file.type,
-          fileSizeBytes: file.size,
-          folder: 'drafts'
-        })
+      const uploadResult = await uploadVideoDirect(file, activeToken, (percent) => {
+        setUploadProgress(Math.max(5, percent));
       });
 
-      const presignData = await presignRes.json().catch(() => ({}));
-      if (!presignRes.ok || !presignData.uploadUrl || !presignData.publicUrl) {
-        throw new Error(presignData.error || 'Could not get an upload URL. Please try again.');
-      }
+      setUploadProgress(95);
 
-      setUploadProgress(10);
-
-      // 2. Stream the file directly from the browser to Cloudflare R2
-      // Local dev without R2 credentials returns a mock URL, so the file transfer is skipped
-      const isMockUpload = String(presignData.uploadUrl).includes('mock-presigned=true');
-      if (isMockUpload) {
-        console.warn('[Upload] R2 is in mock mode (no R2 credentials configured). Skipping file transfer.');
-      } else {
-        await uploadFileToR2(presignData.uploadUrl, file, (percent) =>
-          setUploadProgress(10 + Math.round(percent * 0.8))
-        );
-      }
-
-      setUploadProgress(90);
-
-      const draftVideoUrl: string = presignData.publicUrl;
+      const draftVideoUrl: string = uploadResult.publicUrl;
 
       // Submit Draft to Backend API to permanently transition state in PostgreSQL
       const draftRes = await fetch(`${API_BASE}/api/collabs/${selectedDealForUpload}/draft`, {
@@ -368,9 +388,8 @@ export default function CreatorDashboardPage() {
   };
 
   const briefsReceived = deals.filter((d) => d.status === 'BRIEF_SUBMITTED' || d.status === 'EVOC_APPROVED');
-  const samplesInTransit = deals.filter(
+  const inProduction = deals.filter(
     (d) =>
-      d.status === 'SAMPLE_DISPATCHED' ||
       d.status === 'CREATOR_ACCEPTED' ||
       d.status === 'DRAFT_REVISION_REQUESTED'
   );
@@ -381,7 +400,7 @@ export default function CreatorDashboardPage() {
   const delivered = deals.filter(
     (d) => d.status === 'ASSET_DELIVERED' || d.status === 'CAMPAIGN_ACTIVE' || d.status === 'COMPLETED'
   );
-  const activeDealsCount = briefsReceived.length + samplesInTransit.length + inReview.length;
+  const activeDealsCount = briefsReceived.length + inProduction.length + inReview.length;
 
   return (
     <div className="text-slate-900 pb-12">
@@ -459,7 +478,7 @@ export default function CreatorDashboardPage() {
               <div className="flex items-center justify-between text-xs text-slate-500">
                 <span className="flex items-center">
                   <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 mr-1.5" />
-                  Available to Withdraw
+                  Settled Shopping Points
                 </span>
                 <span className="text-[11px] font-medium text-emerald-700 border border-emerald-200 bg-emerald-50 px-2 py-0.5 rounded-full">
                   Settled
@@ -469,7 +488,7 @@ export default function CreatorDashboardPage() {
                 {points.settledPoints.toLocaleString()} <span className="text-xs font-medium text-slate-400">pts</span>
               </div>
               <div className="mt-1 text-xs text-slate-400">
-                Request a UPI payout (Min. threshold 500 pts)
+                Redeem on partner stores (1 Pt = ₹1 value)
               </div>
             </div>
           </div>
@@ -477,189 +496,324 @@ export default function CreatorDashboardPage() {
 
         {/* Deals Pipeline Section */}
         <section className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
               <h2 className="text-base font-bold text-slate-900">Campaign Deals Pipeline</h2>
-              <p className="text-xs text-slate-500">Manage brand briefs, shipping status, and draft reviews in real time.</p>
+              <p className="text-xs text-slate-500">Filter and manage brand briefs, video production, and submissions.</p>
             </div>
-            <span className="text-xs font-medium text-slate-400">
-              {activeDealsCount} Active {activeDealsCount === 1 ? 'Deal' : 'Deals'}
-            </span>
+
+            {/* User Selectable Filter Tabs */}
+            <div className="inline-flex p-1 rounded-xl border border-slate-200 bg-white shadow-sm overflow-x-auto max-w-full">
+              {[
+                { id: 'ALL', label: 'All Deals', count: deals.length },
+                { id: 'BRIEFS', label: 'Briefs Received', count: briefsReceived.length, dot: 'bg-blue-500' },
+                { id: 'PRODUCTION', label: 'In Production', count: inProduction.length, dot: 'bg-amber-500' },
+                { id: 'REVIEW', label: 'In Review', count: inReview.length, dot: 'bg-emerald-500' },
+                { id: 'DELIVERED', label: 'Delivered', count: delivered.length, dot: 'bg-slate-400' }
+              ].map((tab) => {
+                const isActive = pipelineTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setPipelineTab(tab.id as any)}
+                    className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
+                      isActive
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                    }`}
+                  >
+                    {tab.dot && <span className={`h-1.5 w-1.5 rounded-full ${isActive ? 'bg-white' : tab.dot}`} />}
+                    <span>{tab.label}</span>
+                    <span
+                      className={`ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+                        isActive ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
+                      }`}
+                    >
+                      {tab.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
-          {/* Kanban Board Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-start">
-            {/* Column 1: Briefs Received */}
-            <KanbanColumn
-              title="Briefs Received"
-              dotClass="bg-blue-500"
-              items={briefsReceived}
-              emptyText="No new briefs yet"
-              renderCard={(deal) => (
-                <div key={deal.id} className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md animate-fade-in">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="min-w-0 truncate text-xs font-semibold text-indigo-600">{deal.brandName}</span>
-                    <span className="flex-shrink-0 whitespace-nowrap rounded-md border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold text-indigo-700">
-                      +{deal.commissionPointsPerSale} pts/sale
-                    </span>
+          {/* Tabbed Content View (Shows what the user wants to see) */}
+          <div className="space-y-4">
+            {/* 1. Briefs Received View */}
+            {(pipelineTab === 'BRIEFS' || pipelineTab === 'ALL') && briefsReceived.length > 0 && (
+              <div className="space-y-3">
+                {pipelineTab === 'ALL' && (
+                  <div className="flex items-center space-x-2 text-xs font-bold uppercase tracking-wider text-slate-500 pt-2">
+                    <span className="h-2 w-2 rounded-full bg-blue-500" />
+                    <span>Briefs Received ({briefsReceived.length})</span>
                   </div>
-                  <h3 className="mt-1.5 text-sm font-semibold text-slate-900 leading-snug">{deal.productName}</h3>
-                  <p className="mt-1 text-xs text-slate-500 line-clamp-2">{deal.scriptGuidelines}</p>
-                  <div className="mt-2.5 flex items-center justify-between text-[11px] text-slate-500">
-                    <span className="inline-flex items-center">
-                      <Smartphone className="h-3 w-3 mr-1 text-slate-400" />
-                      {deal.aspectRatio}
-                    </span>
-                    <span className="font-medium text-slate-600">₹{deal.productPrice} retail</span>
-                  </div>
-                  <div className="mt-3 flex items-center gap-2">
-                    <button
-                      onClick={() => handleAcceptDeal(deal.id)}
-                      className="flex-1 rounded-lg bg-indigo-600 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 transition"
-                    >
-                      Accept
-                    </button>
-                    <button
+                )}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {briefsReceived.map((deal) => (
+                    <div
+                      key={deal.id}
                       onClick={() => setSelectedBriefDetail(deal)}
-                      className="flex-1 rounded-lg border border-slate-200 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
+                      className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-all hover:shadow-md hover:border-indigo-400 animate-fade-in flex flex-col justify-between cursor-pointer group"
                     >
-                      View Brief
-                    </button>
-                    <button
-                      onClick={() => handleDeclineDeal(deal.id)}
-                      title="Decline Brief"
-                      className="rounded-lg border border-slate-200 p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                </div>
-              )}
-            />
+                      <div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="truncate text-xs font-semibold text-indigo-600">{deal.brandName}</span>
+                          <span className="rounded-md border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-bold text-indigo-700">
+                            +{deal.commissionPointsPerSale} pts/sale
+                          </span>
+                        </div>
+                        <h3 className="mt-2 text-sm font-bold text-slate-900 group-hover:text-indigo-600 transition leading-snug">{deal.productName}</h3>
+                        <p className="mt-1 text-xs text-slate-500 line-clamp-2">{deal.scriptGuidelines}</p>
+                        
+                        <div className="mt-3 flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-slate-100">
+                          <span className="inline-flex items-center font-medium text-slate-600">
+                            <Smartphone className="h-3.5 w-3.5 mr-1 text-slate-400" />
+                            {deal.aspectRatio}
+                          </span>
+                          <span className="font-semibold text-slate-700">₹{deal.productPrice} retail</span>
+                        </div>
+                      </div>
 
-            {/* Column 2: Sample In Transit */}
-            <KanbanColumn
-              title="Sample In Transit"
-              dotClass="bg-amber-500"
-              items={samplesInTransit}
-              emptyText="No samples on the way"
-              renderCard={(deal) => {
-                const isRevision = deal.status === 'DRAFT_REVISION_REQUESTED';
-                const isFeedbackOpen = expandedFeedbackIds.includes(deal.id);
-                return (
-                  <div key={deal.id} className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md animate-fade-in">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="min-w-0 truncate text-xs font-semibold text-indigo-600">{deal.brandName}</span>
-                      <span
-                        className={`flex-shrink-0 whitespace-nowrap rounded-md border px-1.5 py-0.5 text-[10px] font-bold ${
-                          isRevision
-                            ? 'border-rose-200 bg-rose-50 text-rose-700'
-                            : deal.status === 'CREATOR_ACCEPTED'
-                            ? 'border-blue-200 bg-blue-50 text-blue-700'
-                            : 'border-amber-200 bg-amber-50 text-amber-700'
-                        }`}
-                      >
-                        {isRevision ? 'Revision Needed' : deal.status === 'CREATOR_ACCEPTED' ? 'Accepted' : 'In Transit'}
-                      </span>
-                    </div>
-                    <h3 className="mt-1.5 text-sm font-semibold text-slate-900 leading-snug">{deal.productName}</h3>
-
-                    <div className="mt-2 flex items-center gap-1.5 text-[11px] text-slate-500" title={deal.courierTracking}>
-                      <Truck className="h-3.5 w-3.5 flex-shrink-0 text-slate-400" />
-                      <span className="truncate">
-                        {deal.courierTracking ||
-                          (deal.status === 'CREATOR_ACCEPTED' ? 'Awaiting sample dispatch' : 'Tracking details not added')}
-                      </span>
-                    </div>
-
-                    {isRevision && deal.revisionNotes && (
-                      <div className="mt-2.5 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-2 text-[11px] text-rose-800 leading-relaxed">
-                        <p className={isFeedbackOpen ? '' : 'line-clamp-2'}>
-                          <span className="font-semibold">EVOC Ops: </span>
-                          {deal.revisionNotes}
-                        </p>
+                      <div className="mt-4 pt-2 border-t border-slate-100 flex items-center gap-2">
                         <button
-                          onClick={() =>
-                            setExpandedFeedbackIds((prev) =>
-                              isFeedbackOpen ? prev.filter((id) => id !== deal.id) : [...prev, deal.id]
-                            )
-                          }
-                          className="mt-0.5 font-semibold text-rose-700 hover:underline"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleAcceptDeal(deal.id);
+                          }}
+                          className="flex-1 rounded-lg bg-indigo-600 py-2 text-xs font-semibold text-white hover:bg-indigo-700 transition"
                         >
-                          {isFeedbackOpen ? 'Show less' : 'Read more'}
+                          Accept
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedBriefDetail(deal);
+                          }}
+                          className="flex-1 rounded-lg border border-slate-200 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition flex items-center justify-center gap-1"
+                        >
+                          <FileText className="h-3.5 w-3.5 text-slate-400" />
+                          View Script
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeclineDeal(deal.id);
+                          }}
+                          title="Decline Brief"
+                          className="rounded-lg border border-slate-200 p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
+                        >
+                          <X className="h-3.5 w-3.5" />
                         </button>
                       </div>
-                    )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
-                    <button
-                      onClick={() => {
-                        setSelectedDealForUpload(deal.id);
-                        setIsUploadModalOpen(true);
-                      }}
-                      className="mt-3 w-full flex items-center justify-center rounded-lg bg-emerald-600 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 transition"
+            {/* 2. In Production View */}
+            {(pipelineTab === 'PRODUCTION' || pipelineTab === 'ALL') && inProduction.length > 0 && (
+              <div className="space-y-3">
+                {pipelineTab === 'ALL' && (
+                  <div className="flex items-center space-x-2 text-xs font-bold uppercase tracking-wider text-slate-500 pt-2">
+                    <span className="h-2 w-2 rounded-full bg-amber-500" />
+                    <span>In Production & Uploads ({inProduction.length})</span>
+                  </div>
+                )}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {inProduction.map((deal) => {
+                    const isRevision = deal.status === 'DRAFT_REVISION_REQUESTED';
+                    const isFeedbackOpen = expandedFeedbackIds.includes(deal.id);
+                    return (
+                      <div
+                        key={deal.id}
+                        onClick={() => setSelectedBriefDetail(deal)}
+                        className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-all hover:shadow-md hover:border-indigo-400 animate-fade-in flex flex-col justify-between cursor-pointer group"
+                      >
+                        <div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate text-xs font-semibold text-indigo-600">{deal.brandName}</span>
+                            <span
+                              className={`rounded-md border px-2 py-0.5 text-[10px] font-bold ${
+                                isRevision
+                                  ? 'border-rose-200 bg-rose-50 text-rose-700'
+                                  : 'border-amber-200 bg-amber-50 text-amber-700'
+                              }`}
+                            >
+                              {isRevision ? 'Revision Needed' : 'Ready to Shoot'}
+                            </span>
+                          </div>
+                          <h3 className="mt-2 text-sm font-bold text-slate-900 group-hover:text-indigo-600 transition leading-snug">{deal.productName}</h3>
+                          <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
+                            <span>{deal.deliverableType} • {deal.aspectRatio}</span>
+                            <span className="font-semibold text-indigo-600">+{deal.commissionPointsPerSale} pts/sale</span>
+                          </div>
+
+                          <div className="mt-3 flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-slate-100">
+                            <span className="inline-flex items-center text-indigo-600 font-semibold group-hover:underline">
+                              <FileText className="h-3 w-3 mr-1" /> View Script & Brief
+                            </span>
+                            <span className="text-slate-400 text-[10px]">Click to inspect</span>
+                          </div>
+
+                          {isRevision && (deal.evocReviewNotes || deal.revisionNotes) && (
+                            <div
+                              onClick={(e) => e.stopPropagation()}
+                              className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-2.5 text-xs text-rose-800 leading-relaxed"
+                            >
+                              <p className={isFeedbackOpen ? '' : 'line-clamp-2'}>
+                                <span className="font-semibold">EVOC Ops Notes: </span>
+                                {deal.evocReviewNotes || deal.revisionNotes}
+                              </p>
+                              <button
+                                onClick={() =>
+                                  setExpandedFeedbackIds((prev) =>
+                                    isFeedbackOpen ? prev.filter((id) => id !== deal.id) : [...prev, deal.id]
+                                  )
+                                }
+                                className="mt-1 font-semibold text-rose-700 hover:underline text-[11px]"
+                              >
+                                {isFeedbackOpen ? 'Show less' : 'Read more'}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedDealForUpload(deal.id);
+                            setIsUploadModalOpen(true);
+                          }}
+                          className="mt-4 w-full flex items-center justify-center rounded-lg bg-indigo-600 py-2 text-xs font-semibold text-white hover:bg-indigo-700 transition"
+                        >
+                          <Upload className="h-3.5 w-3.5 mr-1.5" />
+                          {isRevision ? 'Upload New Draft Video' : 'Upload Draft Video'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* 3. In Review View */}
+            {(pipelineTab === 'REVIEW' || pipelineTab === 'ALL') && inReview.length > 0 && (
+              <div className="space-y-3">
+                {pipelineTab === 'ALL' && (
+                  <div className="flex items-center space-x-2 text-xs font-bold uppercase tracking-wider text-slate-500 pt-2">
+                    <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                    <span>In Review ({inReview.length})</span>
+                  </div>
+                )}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {inReview.map((deal) => (
+                    <div
+                      key={deal.id}
+                      onClick={() => setSelectedBriefDetail(deal)}
+                      className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-all hover:shadow-md hover:border-indigo-400 animate-fade-in space-y-2.5 cursor-pointer group"
                     >
-                      <Upload className="h-3.5 w-3.5 mr-1.5" />
-                      {isRevision ? 'Upload New Draft' : 'Upload Draft Video'}
-                    </button>
-                  </div>
-                );
-              }}
-            />
-
-            {/* Column 3: In Review */}
-            <KanbanColumn
-              title="In Review"
-              dotClass="bg-emerald-500"
-              items={inReview}
-              emptyText="No drafts under review"
-              renderCard={(deal) => (
-                <div key={deal.id} className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md animate-fade-in">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="min-w-0 truncate text-xs font-semibold text-indigo-600">{deal.brandName}</span>
-                    <span className="flex-shrink-0 whitespace-nowrap rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">
-                      {deal.status === 'DRAFT_PENDING_EVOC' ? 'EVOC Ops Review' : 'Brand Review'}
-                    </span>
-                  </div>
-                  <h3 className="mt-1.5 text-sm font-semibold text-slate-900 leading-snug">{deal.productName}</h3>
-                  <div className="mt-2 flex items-center gap-1.5 text-[11px] text-slate-500">
-                    <Video className="h-3.5 w-3.5 flex-shrink-0 text-slate-400" />
-                    <span>9:16 draft · private stream</span>
-                  </div>
-                  <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-slate-500">
-                    <ShieldCheck className="h-3.5 w-3.5 flex-shrink-0 text-emerald-600" />
-                    <span>
-                      {deal.status === 'DRAFT_PENDING_EVOC'
-                        ? 'Stage 1 quality check in progress'
-                        : 'Cleared by EVOC Ops — awaiting brand approval'}
-                    </span>
-                  </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate text-xs font-semibold text-indigo-600">{deal.brandName}</span>
+                        <span className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+                          {deal.status === 'DRAFT_PENDING_EVOC' ? 'EVOC Ops Quality Review' : 'Brand Final Review'}
+                        </span>
+                      </div>
+                      <h3 className="text-sm font-bold text-slate-900 group-hover:text-indigo-600 transition leading-snug">{deal.productName}</h3>
+                      <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                        <Video className="h-3.5 w-3.5 text-slate-400" />
+                        <span>9:16 vertical draft · private R2 stream</span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs text-emerald-700 pt-2 border-t border-slate-100">
+                        <div className="flex items-center gap-1.5">
+                          <ShieldCheck className="h-3.5 w-3.5 flex-shrink-0 text-emerald-600" />
+                          <span className="text-[11px]">
+                            {deal.status === 'DRAFT_PENDING_EVOC'
+                              ? 'Stage 1 quality check'
+                              : 'Awaiting brand approval'}
+                          </span>
+                        </div>
+                        <span className="text-[11px] font-semibold text-indigo-600 group-hover:underline flex items-center">
+                          <FileText className="h-3 w-3 mr-0.5" /> View Script
+                        </span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              )}
-            />
+              </div>
+            )}
 
-            {/* Column 4: Delivered */}
-            <KanbanColumn
-              title="Delivered"
-              dotClass="bg-slate-400"
-              items={delivered}
-              emptyText="No delivered ads yet"
-              renderCard={(deal) => (
-                <div
-                  key={deal.id}
-                  className="rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md animate-fade-in"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="min-w-0 truncate text-sm font-semibold text-slate-900">{deal.productName}</span>
-                    <span className="flex-shrink-0 rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-bold text-slate-600">
-                      {deal.status === 'CAMPAIGN_ACTIVE' ? 'Live' : deal.status === 'COMPLETED' ? 'Completed' : 'Delivered'}
-                    </span>
+            {/* 4. Delivered View */}
+            {(pipelineTab === 'DELIVERED' || pipelineTab === 'ALL') && delivered.length > 0 && (
+              <div className="space-y-3">
+                {pipelineTab === 'ALL' && (
+                  <div className="flex items-center space-x-2 text-xs font-bold uppercase tracking-wider text-slate-500 pt-2">
+                    <span className="h-2 w-2 rounded-full bg-slate-400" />
+                    <span>Delivered & Active Campaigns ({delivered.length})</span>
                   </div>
-                  <p className="mt-0.5 truncate text-[11px] text-slate-500">
-                    {deal.brandName} · +{deal.commissionPointsPerSale} pts per sale
-                  </p>
+                )}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {delivered.map((deal) => (
+                    <div
+                      key={deal.id}
+                      onClick={() => setSelectedBriefDetail(deal)}
+                      className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-all hover:shadow-md hover:border-indigo-400 animate-fade-in space-y-2 cursor-pointer group"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-bold text-slate-900 group-hover:text-indigo-600 transition truncate">{deal.productName}</span>
+                        <span className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+                          {deal.status === 'CAMPAIGN_ACTIVE' ? 'Live Campaign' : 'Completed'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        {deal.brandName} · <span className="font-semibold text-indigo-600">+{deal.commissionPointsPerSale} pts</span> per sale
+                      </p>
+                      <div className="flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-slate-100">
+                        <span className="font-semibold text-indigo-600 group-hover:underline flex items-center">
+                          <FileText className="h-3 w-3 mr-1" /> View Script & Assets
+                        </span>
+                        <span className="text-emerald-600 font-medium text-[10px]">Delivered</span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              )}
-            />
+              </div>
+            )}
+
+            {/* Clean, spacious empty states when a category has 0 items */}
+            {((pipelineTab === 'ALL' && deals.length === 0) ||
+              (pipelineTab === 'BRIEFS' && briefsReceived.length === 0) ||
+              (pipelineTab === 'PRODUCTION' && inProduction.length === 0) ||
+              (pipelineTab === 'REVIEW' && inReview.length === 0) ||
+              (pipelineTab === 'DELIVERED' && delivered.length === 0)) && (
+              <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-12 text-center shadow-sm">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 text-slate-400 mb-3">
+                  <Inbox className="h-6 w-6" />
+                </div>
+                <h3 className="text-sm font-bold text-slate-800">
+                  {pipelineTab === 'BRIEFS'
+                    ? 'No new briefs received'
+                    : pipelineTab === 'PRODUCTION'
+                    ? 'No deals in production'
+                    : pipelineTab === 'REVIEW'
+                    ? 'No drafts under review'
+                    : pipelineTab === 'DELIVERED'
+                    ? 'No delivered campaigns yet'
+                    : 'No campaign deals yet'}
+                </h3>
+                <p className="mt-1 text-xs text-slate-500 max-w-sm mx-auto">
+                  {pipelineTab === 'BRIEFS'
+                    ? 'When D2C brands hire you for UGC ads, incoming collaboration briefs will appear here.'
+                    : pipelineTab === 'PRODUCTION'
+                    ? 'Accepted briefs ready for your vertical UGC video shooting and draft uploads appear here.'
+                    : pipelineTab === 'REVIEW'
+                    ? 'Video drafts undergoing EVOC Ops quality review or brand approval appear here.'
+                    : pipelineTab === 'DELIVERED'
+                    ? 'Approved and active campaigns generating sales points will appear here.'
+                    : 'Collaboration requests sent by brands will appear right here in your pipeline.'}
+                </p>
+              </div>
+            )}
           </div>
         </section>
       </>
@@ -737,7 +891,7 @@ export default function CreatorDashboardPage() {
                 {isUploading && (
                   <div className="mt-4 w-full">
                     <div className="flex justify-between text-[11px] font-semibold text-slate-600 mb-1">
-                      <span>Uploading to R2...</span>
+                      <span>Streaming to Cloudflare R2...</span>
                       <span>{uploadProgress}%</span>
                     </div>
                     <div className="h-1.5 w-full bg-slate-200 rounded-full overflow-hidden">
@@ -775,55 +929,187 @@ export default function CreatorDashboardPage() {
         </div>
       )}
 
-      {/* Brief Detail Modal */}
+      {/* Complete Brief & Detailed Script Modal */}
       {selectedBriefDetail && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 backdrop-blur-sm p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white border border-slate-200 shadow-2xl p-6 relative">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-              <div>
-                <span className="text-[11px] font-bold text-indigo-600 uppercase tracking-wider">Creative Brief</span>
-                <h3 className="text-base font-bold text-slate-900">{selectedBriefDetail.productName}</h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="w-full max-w-2xl rounded-2xl bg-white border border-slate-200 shadow-2xl p-6 relative my-8 max-h-[90vh] flex flex-col">
+            {/* Modal Header */}
+            <div className="flex items-start justify-between pb-4 border-b border-slate-100">
+              <div className="pr-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs font-bold text-indigo-600 uppercase tracking-wider bg-indigo-50 border border-indigo-100 px-2.5 py-0.5 rounded-full">
+                    {selectedBriefDetail.brandName}
+                  </span>
+                  <span className="text-[11px] font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full">
+                    {selectedBriefDetail.status.replace(/_/g, ' ')}
+                  </span>
+                </div>
+                <h3 className="text-lg font-bold text-slate-900 leading-snug">{selectedBriefDetail.productName}</h3>
               </div>
               <button
                 onClick={() => setSelectedBriefDetail(null)}
-                className="h-8 w-8 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 flex items-center justify-center transition"
+                className="h-8 w-8 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 flex items-center justify-center transition flex-shrink-0"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
-            <div className="mt-4 space-y-4 text-xs">
-              <div>
-                <span className="font-semibold text-slate-500">Brand:</span>
-                <p className="font-bold text-slate-900 mt-0.5">{selectedBriefDetail.brandName}</p>
-              </div>
-
-              <div>
-                <span className="font-semibold text-slate-500">Script Guidelines & Talking Points:</span>
-                <p className="text-slate-700 bg-slate-50 p-3 rounded-xl border border-slate-200/80 mt-1 leading-relaxed">
-                  {selectedBriefDetail.scriptGuidelines}
-                </p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 pt-2">
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/80">
-                  <span className="font-semibold text-slate-500">Commission</span>
-                  <p className="font-bold text-slate-900 text-sm mt-0.5">+{selectedBriefDetail.commissionPointsPerSale} pts / sale</p>
+            {/* Modal Body - Scrollable */}
+            <div className="mt-4 space-y-5 overflow-y-auto pr-1 flex-1 text-slate-800">
+              {/* Deliverable Specifications Strip */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                <div className="rounded-xl border border-slate-200/80 bg-slate-50/80 p-3">
+                  <span className="text-[11px] font-medium text-slate-500">Retail Price</span>
+                  <p className="text-sm font-bold text-slate-900 mt-0.5">₹{selectedBriefDetail.productPrice}</p>
                 </div>
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/80">
-                  <span className="font-semibold text-slate-500">Format</span>
-                  <p className="font-bold text-slate-900 text-sm mt-0.5">{selectedBriefDetail.aspectRatio} Vertical</p>
+                <div className="rounded-xl border border-indigo-200/80 bg-indigo-50/50 p-3">
+                  <span className="text-[11px] font-medium text-indigo-600">Commission</span>
+                  <p className="text-sm font-bold text-indigo-700 mt-0.5">+{selectedBriefDetail.commissionPointsPerSale} pts/sale</p>
+                </div>
+                <div className="rounded-xl border border-slate-200/80 bg-slate-50/80 p-3">
+                  <span className="text-[11px] font-medium text-slate-500">Deliverable</span>
+                  <p className="text-sm font-bold text-slate-900 mt-0.5">{selectedBriefDetail.deliverableType}</p>
+                </div>
+                <div className="rounded-xl border border-slate-200/80 bg-slate-50/80 p-3">
+                  <span className="text-[11px] font-medium text-slate-500">Aspect Ratio</span>
+                  <p className="text-sm font-bold text-slate-900 mt-0.5">{selectedBriefDetail.aspectRatio} Vertical</p>
                 </div>
               </div>
+
+              {/* Complete Script Guidelines & Talking Points */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                    <FileText className="h-3.5 w-3.5 text-indigo-600" />
+                    Complete Script Guidelines & Talking Points
+                  </label>
+                  <button
+                    onClick={() => {
+                      if (selectedBriefDetail.scriptGuidelines) {
+                        navigator.clipboard.writeText(selectedBriefDetail.scriptGuidelines);
+                        setCopiedScript(true);
+                        setTimeout(() => setCopiedScript(false), 2000);
+                      }
+                    }}
+                    className="inline-flex items-center text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 transition"
+                  >
+                    {copiedScript ? (
+                      <>
+                        <Check className="h-3 w-3 mr-1 text-emerald-600" />
+                        <span className="text-emerald-600">Copied to clipboard</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="h-3 w-3 mr-1" />
+                        <span>Copy Script</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 text-xs text-slate-800 whitespace-pre-wrap leading-relaxed max-h-60 overflow-y-auto font-sans shadow-inner">
+                  {selectedBriefDetail.scriptGuidelines || 'No specific script guidelines provided.'}
+                </div>
+              </div>
+
+              {/* Video Hooks (if provided) */}
+              {selectedBriefDetail.videoHooks && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-900 mb-1.5 flex items-center gap-1.5">
+                    <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+                    Target Hooks & Opening Angles
+                  </label>
+                  <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-3.5 text-xs text-amber-900 whitespace-pre-wrap leading-relaxed">
+                    {selectedBriefDetail.videoHooks}
+                  </div>
+                </div>
+              )}
+
+              {/* Revision Feedback (if revision requested) */}
+              {(selectedBriefDetail.evocReviewNotes || selectedBriefDetail.revisionNotes) && (
+                <div>
+                  <label className="block text-xs font-bold text-rose-800 mb-1.5 flex items-center gap-1.5">
+                    <AlertCircle className="h-3.5 w-3.5 text-rose-600" />
+                    EVOC Ops Quality Review Feedback
+                  </label>
+                  <div className="rounded-xl border border-rose-200 bg-rose-50 p-3.5 text-xs text-rose-900 whitespace-pre-wrap leading-relaxed">
+                    {selectedBriefDetail.evocReviewNotes || selectedBriefDetail.revisionNotes}
+                  </div>
+                </div>
+              )}
+
+              {/* Delivered Video & Campaign Details */}
+              {(selectedBriefDetail.approvedVideoUrl || selectedBriefDetail.draftVideoUrl) && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3.5 space-y-2">
+                  <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                    <Video className="h-3.5 w-3.5 text-indigo-600" />
+                    Deliverable Video Asset
+                  </span>
+                  <div className="flex items-center justify-between text-xs bg-white border border-slate-200 rounded-lg p-2.5">
+                    <span className="truncate text-slate-600 max-w-sm">
+                      {selectedBriefDetail.approvedVideoUrl || selectedBriefDetail.draftVideoUrl}
+                    </span>
+                    <a
+                      href={selectedBriefDetail.approvedVideoUrl || selectedBriefDetail.draftVideoUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="ml-2 inline-flex items-center text-xs font-semibold text-indigo-600 hover:underline flex-shrink-0"
+                    >
+                      Open Video <ArrowUpRight className="h-3 w-3 ml-0.5" />
+                    </a>
+                  </div>
+                </div>
+              )}
             </div>
 
-            <div className="mt-6 flex justify-end">
+            {/* Modal Footer with Contextual Actions */}
+            <div className="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between gap-3">
               <button
                 onClick={() => setSelectedBriefDetail(null)}
-                className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-700 transition"
+                className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition"
               >
-                Close Brief
+                Close View
               </button>
+
+              <div className="flex items-center gap-2">
+                {selectedBriefDetail.status === 'BRIEF_SUBMITTED' && (
+                  <>
+                    <button
+                      onClick={() => {
+                        handleDeclineDeal(selectedBriefDetail.id);
+                        setSelectedBriefDetail(null);
+                      }}
+                      className="rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100 transition"
+                    >
+                      Decline
+                    </button>
+                    <button
+                      onClick={() => {
+                        handleAcceptDeal(selectedBriefDetail.id);
+                        setSelectedBriefDetail(null);
+                      }}
+                      className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-700 transition"
+                    >
+                      Accept Deal
+                    </button>
+                  </>
+                )}
+
+                {(selectedBriefDetail.status === 'CREATOR_ACCEPTED' ||
+                  selectedBriefDetail.status === 'DRAFT_REVISION_REQUESTED') && (
+                  <button
+                    onClick={() => {
+                      const dealId = selectedBriefDetail.id;
+                      setSelectedBriefDetail(null);
+                      setSelectedDealForUpload(dealId);
+                      setIsUploadModalOpen(true);
+                    }}
+                    className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-700 transition flex items-center gap-1.5"
+                  >
+                    <Upload className="h-3.5 w-3.5" />
+                    Upload Draft Video
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>

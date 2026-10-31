@@ -112,7 +112,7 @@ export default function AppShell({ role, children }: AppShellProps) {
 
   const handleLogout = () => {
     clearSession();
-    router.push('/login');
+    window.location.href = '/login';
   };
 
   const roleBadge = ROLE_BADGES[role];

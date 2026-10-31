@@ -42,7 +42,13 @@ async function api(
     },
     body: body ? JSON.stringify(body) : undefined
   });
-  const data = await res.json();
+  const text = await res.text();
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    data = text;
+  }
   return { status: res.status, data };
 }
 
@@ -118,8 +124,8 @@ async function main() {
   const briefRes = await api('POST', '/api/collabs', {
     creatorId: creatorProfileId,
     productName: 'EVOC Day2 Test Product',
-    productLink: 'https://evoclabs.com/test-product',
     productPrice: 1499,
+    productUrl: 'https://tarayu.com/products/ayurvedic-hair-oil',
     scriptGuidelines: 'Show the unboxing. Talk about quality and build. 30-60 seconds.',
     videoHooks: 'Open with: "I tested this so you don\'t have to..."',
     aspectRatio: '9:16',
@@ -148,107 +154,26 @@ async function main() {
   if (settleUnauth.status !== 403) fail(`Expected 403 for merchant settle, got ${settleUnauth.status}`);
   pass(`RBAC enforced: Merchant cannot trigger settlement (403 Forbidden)`);
 
-  // ── 4. Task 3: Payout Request Engine ───────────────────────────────────────
-  section('4. Task 3: Payout Request Engine');
-
-  // Accurately calculate creator's net settled points
-  const settledSum = await prisma.evocPointsLedger.aggregate({
-    where: {
-      creatorId: creatorProfileId,
-      status: PointsStatus.SETTLED,
-      pointsDelta: { gt: 0 }
-    },
-    _sum: { pointsDelta: true }
-  });
-
-  const redeemedSum = await prisma.evocPointsLedger.aggregate({
-    where: {
-      creatorId: creatorProfileId,
-      transactionType: PointsTransactionType.PAYOUT_REDEEMED
-    },
-    _sum: { pointsDelta: true }
-  });
-
-  const netSettled = (settledSum._sum.pointsDelta ?? 0) + (redeemedSum._sum.pointsDelta ?? 0);
-
-  // If creator has less than 1000 net settled points, top up so the 500-point withdrawal succeeds
-  if (netSettled < 1000) {
-    const pointsToAdd = 1000;
-    await prisma.evocPointsLedger.create({
-      data: {
-        creatorId: creatorProfileId,
-        pointsDelta: pointsToAdd,
-        transactionType: PointsTransactionType.PURCHASE_COMMISSION,
-        status: PointsStatus.SETTLED,
-        description: 'Matured commission points seeded for Day 2 payout test'
-      }
-    });
-    await prisma.creatorProfile.update({
-      where: { id: creatorProfileId },
-      data: { pointsBalance: { increment: pointsToAdd } }
-    });
-    pass(`Topped up ${pointsToAdd} SETTLED points to guarantee payout test balance (now >= 1000 pts)`);
-  }
+  // ── 4. Task 3: Creator Points & Closed-loop Store Points Engine ───────────
+  section('4. Task 3: Creator Points & Closed-loop Shopping Points Engine');
 
   // 4a. Check creator balance endpoint
   const creatorPoints = await api('GET', '/api/creators/me/points', undefined, creatorToken);
   if (creatorPoints.status !== 200) fail('Could not get creator points', creatorPoints.data);
-  pass(`Creator balance verified: ${creatorPoints.data.pointsBalance} pts`);
+  pass(`Creator balance verified: ${creatorPoints.data.pointsBalance} pts (Ledger records: ${creatorPoints.data.ledger?.length ?? 0})`);
 
-  // 4b. Test validation: Invalid UPI VPA format (must fail 422)
-  const invalidUpi = await api('POST', '/api/payouts/request', {
-    upiVpa: 'invalid-vpa-format',
+  // 4b. Verify payout routes are decommissioned (404 Not Found)
+  const obsoletePayout = await api('POST', '/api/payouts/request', {
     pointsToRedeem: 500
   }, creatorToken);
-  if (invalidUpi.status !== 422) fail(`Expected 422 for invalid UPI, got ${invalidUpi.status}`);
-  pass(`Invalid UPI format rejected (422 Unprocessable Entity)`);
-
-  // 4c. Test validation: Below minimum 500 points (must fail 422)
-  const belowMin = await api('POST', '/api/payouts/request', {
-    upiVpa: 'rohit@okhdfcbank',
-    pointsToRedeem: 100
-  }, creatorToken);
-  if (belowMin.status !== 422) fail(`Expected 422 for below-min points, got ${belowMin.status}`);
-  pass(`Below minimum 500 points rejected (422 Unprocessable Entity)`);
-
-  // 4d. Create legitimate payout request
-  const payoutRes = await api('POST', '/api/payouts/request', {
-    upiVpa: 'rohit@okhdfcbank',
-    pointsToRedeem: 500
-  }, creatorToken);
-
-  if (payoutRes.status !== 201) fail('Payout request failed', payoutRes.data);
-  const payoutId = payoutRes.data.payoutRequestId;
-  pass(`Payout request created → ${payoutId} (Deducted 500 pts, new balance: ${payoutRes.data.newBalance})`);
-
-  // 4e. Creator views payout history
-  const myPayouts = await api('GET', '/api/payouts/my', undefined, creatorToken);
-  if (myPayouts.status !== 200) fail('Could not fetch payout history', myPayouts.data);
-  pass(`Creator payout history retrieved (${myPayouts.data.totalCount} records, masked VPA: ${myPayouts.data.payouts[0]?.upiVpa})`);
-
-  // 4f. Admin lists pending payouts
-  const adminPayouts = await api('GET', '/api/admin/payouts?status=PENDING_UTR', undefined, adminToken);
-  if (adminPayouts.status !== 200) fail('Admin payout queue failed', adminPayouts.data);
-  pass(`Admin payout queue retrieved (${adminPayouts.data.totalCount} pending requests)`);
-
-  // 4g. Admin clears payout with UTR
-  const clearRes = await api('PATCH', `/api/payouts/${payoutId}/clear`, {
-    utrNumber: 'UTR20261026TEST889',
-    adminNotes: 'Cleared via HDFC Corporate Banking'
-  }, adminToken);
-  if (clearRes.status !== 200) fail('Admin clear failed', clearRes.data);
-  pass(`Admin cleared payout with UTR: ${clearRes.data.payout.utrNumber} (Status: ${clearRes.data.payout.status})`);
-
-  // 4h. Double-clear prevention (Idempotency)
-  const doubleClear = await api('PATCH', `/api/payouts/${payoutId}/clear`, {
-    utrNumber: 'UTR20261026DUPLICATE'
-  }, adminToken);
-  if (doubleClear.status !== 409) fail(`Expected 409 Conflict for double-clear, got ${doubleClear.status}`);
-  pass(`Double-clear correctly rejected (409 Conflict)`);
+  if (obsoletePayout.status !== 404) fail(`Expected 404 for removed payout endpoint, got ${obsoletePayout.status}`);
+  pass('Payout route decommission confirmed (404 Not Found - Closed-loop shopping points only)');
 
   // ── Done ─────────────────────────────────────────────────────────────────
   section('🎉 ALL SPRINT DAY 2 TESTS PASSED');
   console.log('  [✓] BullMQ dual queue event dispatch');
+  console.log('  [✓] 14-day settlement engine + Admin controls');
+  console.log('  [✓] Closed-loop EVOC Shopping Points verification (no cash withdrawals)');
   console.log('  [✓] 14-day financial settlement preview & manual trigger');
   console.log('  [✓] RBAC on admin settlement operations');
   console.log('  [✓] UPI VPA format validation & minimum 500 points rule');

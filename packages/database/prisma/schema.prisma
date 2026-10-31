@@ -30,7 +30,6 @@ enum CollabStatus {
   BRIEF_SUBMITTED          // Dispatched to Creator & Admin
   EVOC_APPROVED            // EVOC Ops cleared the brief
   CREATOR_ACCEPTED        // Creator agreed to shoot ad
-  SAMPLE_DISPATCHED      // Sample in transit via EVOC Logistics
   DRAFT_PENDING_EVOC      // 100% PRIVATE: Visible only to EVOC Ops
   DRAFT_REVISION_REQUESTED // EVOC rejected draft — Creator must fix & re-upload
   DRAFT_PENDING_MERCHANT  // STILL PRIVATE: Unlocked for Merchant review
@@ -43,19 +42,13 @@ enum CollabStatus {
 enum PointsTransactionType {
   PURCHASE_COMMISSION
   MILESTONE_BONUS
-  PAYOUT_REDEEMED
+  STORE_REDEMPTION
 }
 
 enum PointsStatus {
   LOCKED
   SETTLED
   CANCELLED
-}
-
-enum PayoutStatus {
-  PENDING_UTR   // Waiting for bank UTR confirmation
-  CLEARED       // Payment confirmed, UTR recorded
-  REJECTED      // Admin rejected payout request
 }
 
 model User {
@@ -78,7 +71,6 @@ model MerchantProfile {
   id                    String             @id @default(uuid()) @db.Uuid
   userId                String             @unique @db.Uuid
   brandName             String
-  websiteUrl            String?
   subscriptionPlan      SubscriptionPlan   @default(STARTER)
   subscriptionStatus    SubscriptionStatus @default(ACTIVE)
   subscriptionExpiresAt DateTime?
@@ -101,7 +93,6 @@ model CreatorProfile {
   contentStyles     String[] // ["Unboxing", "Testimonial", "Hook+Problem+Solution"]
   bioSummary        String?
   pointsBalance     Int      @default(0)
-  upiIdEncrypted    String?  // Kept encrypted at rest, never visible to merchants
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -110,7 +101,6 @@ model CreatorProfile {
   reviews           CreatorReview[]
   collabs           CollaborationRequest[]
   pointsLedger      EvocPointsLedger[]
-  payoutRequests    PayoutRequest[]
 
   @@map("creator_profiles")
 }
@@ -149,20 +139,14 @@ model CollaborationRequest {
   merchantId              String       @db.Uuid
   creatorId               String       @db.Uuid
   productName             String
-  productLink             String
   productPrice            Decimal      @db.Decimal(10, 2)
+  productUrl              String       // Store product landing page URL (Required, Merchant & Admin only)
   scriptGuidelines        String       // Talking points & creative brief
   videoHooks              String       // Opening 3-5 seconds hook
   aspectRatio             String       @default("9:16")
   deliverableType         String       @default("1 UGC Video Ad (30-60s)")
   commissionPointsPerSale Int          @default(100)
   status                  CollabStatus @default(BRIEF_SUBMITTED)
-  
-  // Logistics & Sample Tracking
-  courierName             String?      // e.g. "BlueDart", "Delhivery"
-  trackingNumber          String?      // e.g. "BD12345678IN"
-  trackingUrl             String?      // Tracking link for creator
-  sampleDispatchedAt      DateTime?
   
   // Deliverable Tracking
   draftVideoUrl           String?      // Private Cloudflare R2 / S3 URL
@@ -210,20 +194,4 @@ model OrderAttribution {
   collab       CollaborationRequest @relation(fields: [collabId], references: [id], onDelete: Cascade)
 
   @@map("order_attributions")
-}
-
-model PayoutRequest {
-  id              String       @id @default(uuid()) @db.Uuid
-  creatorId       String       @db.Uuid
-  pointsRedeemed  Int          // Points deducted for this payout
-  upiVpa          String       // Masked UPI VPA stored for audit (e.g. roh***@okhdfcbank)
-  status          PayoutStatus @default(PENDING_UTR)
-  utrNumber       String?      // Bank UTR once cleared
-  adminNotes      String?      // Notes from EVOC Finance team
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
-
-  creator         CreatorProfile @relation(fields: [creatorId], references: [id], onDelete: Cascade)
-
-  @@map("payout_requests")
 }

@@ -10,7 +10,6 @@ import {
   FileText,
   Inbox,
   Video,
-  Banknote,
   ShieldAlert,
   X,
   ChevronsLeft,
@@ -23,16 +22,15 @@ export type PortalRole = 'CREATOR' | 'MERCHANT' | 'SUPER_ADMIN';
 export const NAV_LINKS: Record<PortalRole, Array<{ href: string; label: string; Icon: typeof Wallet }>> = {
   CREATOR: [
     { href: '/dashboard', label: 'Deals Kanban', Icon: Kanban },
-    { href: '/dashboard/wallet', label: 'Wallet & Payouts', Icon: Wallet }
+    { href: '/dashboard/wallet', label: 'Shopping Points', Icon: Wallet }
   ],
   MERCHANT: [
+    { href: '/collabs', label: 'Collabs Dashboard', Icon: Inbox },
     { href: '/creators', label: 'Find Creators', Icon: Users },
-    { href: '/brief', label: 'Create Brief', Icon: FileText },
-    { href: '/collabs', label: 'Collabs Hub', Icon: Inbox }
+    { href: '/brief', label: 'Create Brief', Icon: FileText }
   ],
   SUPER_ADMIN: [
     { href: '/moderation', label: 'Video Moderation', Icon: Video },
-    { href: '/admin/payouts', label: 'Payout Clearance', Icon: Banknote },
     { href: '/admin/security-flags', label: 'Security Flags', Icon: ShieldAlert }
   ]
 };

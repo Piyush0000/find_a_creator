@@ -26,7 +26,20 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Not signed in, or signed in with the wrong role: send to login and come back after
+  // If user is already authenticated with a different role, seamlessly direct them to their portal
+  if (role) {
+    if (role === 'MERCHANT') {
+      return NextResponse.redirect(new URL('/collabs', request.url));
+    }
+    if (role === 'CREATOR') {
+      return NextResponse.redirect(new URL('/dashboard', request.url));
+    }
+    if (role === 'SUPER_ADMIN') {
+      return NextResponse.redirect(new URL('/moderation', request.url));
+    }
+  }
+
+  // Not signed in: send to login and come back after
   const loginUrl = new URL('/login', request.url);
   loginUrl.searchParams.set('redirect', `${pathname}${search}`);
   return NextResponse.redirect(loginUrl);

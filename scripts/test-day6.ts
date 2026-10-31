@@ -116,8 +116,8 @@ async function runDay6Tests() {
     {
       creatorId: creatorProfileId,
       productName: 'Day 6 Review Queue Face Scrub',
-      productLink: 'https://glowskincare.com/products/facescrub',
       productPrice: 799,
+      productUrl: 'https://tarayu.com/products/face-scrub',
       scriptGuidelines: 'Highlight gentle walnut beads, 45-second shower routine, and instant smoothness.',
       videoHooks: 'Stop scrubbing your face like a frying pan! Try this instead...',
       aspectRatio: '9:16',

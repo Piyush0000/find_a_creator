@@ -19,7 +19,6 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 interface Collaboration {
   id: string;
   productName: string;
-  productLink: string;
   productPrice: number;
   commissionPointsPerSale: number;
   scriptGuidelines: string;
@@ -33,7 +32,6 @@ interface Collaboration {
   merchant?: {
     id: string;
     brandName: string;
-    websiteUrl: string;
   };
   creator?: {
     id: string;
@@ -55,8 +53,7 @@ const REVISION_TAGS = [
 const STATUS_NOTES: Record<string, string> = {
   BRIEF_SUBMITTED: 'Waiting for the creator to accept the brief.',
   EVOC_APPROVED: 'Waiting for the creator to accept the brief.',
-  CREATOR_ACCEPTED: 'Waiting for the merchant to ship the product sample.',
-  SAMPLE_DISPATCHED: "Sample is on its way. Waiting for the creator's draft video.",
+  CREATOR_ACCEPTED: 'Creator accepted the brief. Video draft in production.',
   DRAFT_REVISION_REQUESTED: 'Revisions requested. Waiting for the creator to upload a new draft.',
   DRAFT_PENDING_MERCHANT: "Approved by EVOC Ops. Waiting for the brand's final review.",
   ASSET_DELIVERED: 'Brand approved. The final ad asset has been delivered.',
@@ -337,20 +334,6 @@ export default function AdminModerationPage() {
                             <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Creator</dt>
                             <dd className="mt-0.5 font-semibold text-slate-800">{selectedCollab.creator?.displayAlias}</dd>
                           </div>
-                        </div>
-                        <div>
-                          <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Product Link</dt>
-                          <dd className="mt-0.5">
-                            <a
-                              href={selectedCollab.productLink}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 font-medium text-indigo-600 hover:underline break-all"
-                            >
-                              {selectedCollab.productLink}
-                              <ExternalLink className="h-3 w-3 flex-shrink-0" />
-                            </a>
-                          </dd>
                         </div>
                         <div>
                           <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-400">3-Second Hook</dt>

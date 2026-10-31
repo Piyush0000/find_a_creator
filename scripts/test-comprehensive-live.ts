@@ -184,8 +184,8 @@ async function runAllTests() {
     {
       creatorId: creatorProfileId,
       productName: 'HydraGlow Peptide Cream',
-      productLink: 'https://glowskincare.com/products/hydraglow',
       productPrice: 1999,
+      productUrl: 'https://tarayu.com/products/hydraglow-peptide-cream',
       scriptGuidelines: 'Focus on glass skin texture in 45 seconds.',
       videoHooks: 'The 1 skincare mistake you are making every morning...',
       aspectRatio: '9:16',
@@ -203,21 +203,7 @@ async function runAllTests() {
   if (acceptRes.status !== 200) fail('Creator accept failed', acceptRes.data);
   pass(`Creator accepted collab (Status: CREATOR_ACCEPTED)`);
 
-  // 3c. Merchant dispatches physical sample
-  const sampleRes = await api(
-    'PATCH',
-    `/api/collabs/${collabId}/sample-dispatched`,
-    {
-      courierName: 'Delhivery Express',
-      trackingNumber: 'DEL99887766IN',
-      trackingUrl: 'https://delhivery.com/track/DEL99887766IN'
-    },
-    merchantToken
-  );
-  if (sampleRes.status !== 200) fail('Sample dispatch failed', sampleRes.data);
-  pass(`Sample dispatched: Courier=${sampleRes.data.courierName}, Tracking=${sampleRes.data.trackingNumber}`);
-
-  // 3d. Creator submits the R2 video URL as draft
+  // 3c. Creator produces & submits the R2 video URL as draft
   const draftSubmitRes = await api(
     'POST',
     `/api/collabs/${collabId}/draft`,
@@ -279,17 +265,17 @@ async function runAllTests() {
   if (settleForbidden.status !== 403) fail(`Expected 403 for merchant settlement, got ${settleForbidden.status}`);
   pass(`RBAC: Merchant blocked from triggering settlement (HTTP 403)`);
 
-  // ── 5. Creator UPI Payout Engine ──────────────────────────────────────────
-  section('5. Creator UPI Payout Engine');
+  // ── 5. Creator Points & Closed-loop Store Points Engine ───────────────────
+  section('5. Creator Points & Closed-loop Store Points Engine');
 
-  // Seed 1000 settled points to test full payout withdrawal lifecycle
+  // Seed 1000 settled points to test points ledger and shopping vouchers
   await prisma.evocPointsLedger.create({
     data: {
       creatorId: creatorProfileId,
       pointsDelta: 1000,
       transactionType: PointsTransactionType.PURCHASE_COMMISSION,
       status: PointsStatus.SETTLED,
-      description: 'Live test matured points'
+      description: 'Live test matured store shopping points'
     }
   });
   await prisma.creatorProfile.update({
@@ -297,62 +283,25 @@ async function runAllTests() {
     data: { pointsBalance: { increment: 1000 } }
   });
 
-  // 5a. Invalid UPI validation
-  const badUpiRes = await api('POST', '/api/payouts/request', { upiVpa: 'invalid-upi', pointsToRedeem: 500 }, creatorToken);
-  if (badUpiRes.status !== 422) fail(`Expected 422 for invalid UPI, got ${badUpiRes.status}`);
-  pass(`Validation: Rejects invalid UPI format (HTTP 422)`);
+  // 5a. Creator balance endpoint
+  const creatorBalanceRes = await api('GET', '/api/creators/me/points', undefined, creatorToken);
+  if (creatorBalanceRes.status !== 200) fail('Could not get creator points', creatorBalanceRes.data);
+  pass(`Creator balance confirmed: ${creatorBalanceRes.data.pointsBalance} pts`);
 
-  // 5b. Below minimum 500 points
-  const lowPointsRes = await api('POST', '/api/payouts/request', { upiVpa: 'rohit@okhdfcbank', pointsToRedeem: 250 }, creatorToken);
-  if (lowPointsRes.status !== 422) fail(`Expected 422 for <500 points, got ${lowPointsRes.status}`);
-  pass(`Validation: Rejects below-minimum 500 points (HTTP 422)`);
-
-  // 5c. Valid Payout Request
-  const validPayoutRes = await api('POST', '/api/payouts/request', { upiVpa: 'rohit.evoc@okhdfcbank', pointsToRedeem: 500 }, creatorToken);
-  if (validPayoutRes.status !== 201) fail('Payout request failed', validPayoutRes.data);
-  const payoutRequestId = validPayoutRes.data.payoutRequestId;
-  pass(`Payout created: ID=${payoutRequestId}, Deducted=500 pts, Status=PENDING_UTR`);
-
-  // 5d. Creator Payout History & Masked UPI Audit
-  const myPayoutsRes = await api('GET', '/api/payouts/my', undefined, creatorToken);
-  if (myPayoutsRes.status !== 200) fail('Could not get payout history', myPayoutsRes.data);
-  const latestPayout = myPayoutsRes.data.payouts[0];
-  if (!latestPayout.upiVpa.includes('*')) fail('UPI VPA was not masked for audit storage!', latestPayout);
-  pass(`Masked UPI Audit confirmed: ${latestPayout.upiVpa}`);
-
-  // 5e. Admin clears payout with Bank UTR
-  const clearPayoutRes = await api(
-    'PATCH',
-    `/api/payouts/${payoutRequestId}/clear`,
-    {
-      utrNumber: 'HDFC20261027998877',
-      adminNotes: 'Cleared via corporate banking IMPS'
-    },
-    adminToken
-  );
-  if (clearPayoutRes.status !== 200) fail('Admin payout clear failed', clearPayoutRes.data);
-  pass(`Admin cleared payout with Bank UTR: ${clearPayoutRes.data.payout.utrNumber} (Status: CLEARED)`);
-
-  // 5f. Idempotency guard: double-clear rejected
-  const duplicateClearRes = await api(
-    'PATCH',
-    `/api/payouts/${payoutRequestId}/clear`,
-    { utrNumber: 'HDFC_DUPLICATE_ATTEMPT' },
-    adminToken
-  );
-  if (duplicateClearRes.status !== 409) fail(`Expected 409 Conflict for double-clear, got ${duplicateClearRes.status}`);
-  pass(`Idempotency: Double-clear rejected (HTTP 409 Conflict)`);
+  // 5b. Verify money payout endpoint is decommissioned (404)
+  const decommissionRes = await api('POST', '/api/payouts/request', { pointsToRedeem: 500 }, creatorToken);
+  if (decommissionRes.status !== 404) fail(`Expected 404 for removed payout endpoint, got ${decommissionRes.status}`);
+  pass(`Money payout route confirmed decommissioned (HTTP 404 Not Found - Closed-loop shopping points only)`);
 
   // ── SUMMARY ──────────────────────────────────────────────────────────────
   section('🏆 ALL LIVE TESTS PASSED SUCCESSFULLY');
   console.log('  [✓] Real Cloudflare R2 Presigned Upload & Direct Binary PUT (HTTP 200)');
   console.log('  [✓] R2 File Size (>150MB) and MIME Type Security Guards');
-  console.log('  [✓] Collab Brief, Creator Acceptance & Courier Sample Tracking');
+  console.log('  [✓] Direct Production Streamlined Workflow (Zero Sample Shipping Delays)');
   console.log('  [✓] Zero-Leak Draft Video Masking (Stage 1 EVOC Quality Gate)');
   console.log('  [✓] Turnkey Meta Ads UTM Link & High-Res Asset Handoff');
   console.log('  [✓] 14-Day Return Window Settlement Engine');
-  console.log('  [✓] Creator UPI Payout Request Engine & Masked VPA Audit');
-  console.log('  [✓] Admin Bank UTR Clearance & Double-Clear Prevention\n');
+  console.log('  [✓] Closed-loop EVOC Shopping Points Store Vouchers (No Money Redemption)\n');
 }
 
 runAllTests().catch((err) => {

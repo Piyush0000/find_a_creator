@@ -7,7 +7,6 @@ export const RegisterUserSchema = z.object({
   password: z.string().min(8, 'Password must be at least 8 characters'),
   role: z.enum([UserRole.MERCHANT, UserRole.CREATOR]),
   brandName: z.string().optional(),
-  websiteUrl: z.string().url().optional().or(z.literal('')),
   displayAlias: z.string().optional(),
   category: z.string().optional(),
   city: z.string().optional(),
@@ -22,8 +21,8 @@ export const LoginUserSchema = z.object({
 export const CreateCollabBriefSchema = z.object({
   creatorId: z.string().uuid(),
   productName: z.string().min(2),
-  productLink: z.string().url(),
   productPrice: z.number().positive(),
+  productUrl: z.string().url('Please enter a valid product URL (e.g. https://yourbrand.com/product)'),
   scriptGuidelines: z.string().min(20, 'Please provide detailed script/talking points'),
   videoHooks: z.string().min(10, 'Specify the opening 3-second hook'),
   aspectRatio: z.enum(['9:16', '16:9', '1:1']).default('9:16'),
@@ -40,31 +39,6 @@ export const OrderWebhookPayloadSchema = z.object({
   couponCode: z.string().optional(),
   createdAt: z.string()
 });
-
-// Exact regex from Toufeeq's Plan: /^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$/
-export const UPI_VPA_REGEX = /^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$/;
-
-export const CreatePayoutRequestSchema = z.object({
-  upiVpa: z
-    .string()
-    .regex(UPI_VPA_REGEX, 'Invalid Indian UPI ID format (e.g. name@okhdfcbank)'),
-  pointsToRedeem: z
-    .number()
-    .int('Points must be a whole number')
-    .min(500, 'Minimum withdrawal threshold is 500 points (₹500)')
-});
-
-export const AdminClearPayoutSchema = z.object({
-  utrNumber: z.string().min(6, 'Bank UTR reference is required'),
-  adminNotes: z.string().optional()
-});
-
-export const AdminRejectPayoutSchema = z.object({
-  adminNotes: z.string().min(5, 'Rejection reason is required')
-});
-
-// Export both names to prevent any import breakage
-export const AdminRejectSchema = AdminRejectPayoutSchema;
 
 export const REVIEW_REJECTION_TAGS = [
   'POOR_AUDIO',

@@ -59,8 +59,8 @@ async function run() {
   const briefPayload = {
     creatorId: creatorUser.creatorProfile.id,
     productName: 'Hydrating Face Serum',
-    productLink: 'https://glowskincare.in/products/serum',
     productPrice: 1299,
+    productUrl: 'https://tarayu.com/products/ayurvedic-face-serum',
     scriptGuidelines: 'Focus on morning skincare routine. Show texture on back of hand, then apply 3 drops to face. Highlight hyaluronic acid benefits.',
     videoHooks: 'Stop using serums that dry out your skin after 10 minutes!',
     aspectRatio: '9:16',

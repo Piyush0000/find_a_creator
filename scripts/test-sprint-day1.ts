@@ -115,8 +115,8 @@ async function run() {
     body: JSON.stringify({
       creatorId: creatorUser.creatorProfile!.id,
       productName: 'Hydrating Night Cream',
-      productLink: 'https://glowskincare.in/products/nightcream',
       productPrice: 1499,
+      productUrl: 'https://tarayu.com/products/hydrating-night-cream',
       scriptGuidelines: 'Highlight morning recovery and deep hydration with hyaluronic acid.',
       videoHooks: 'Wake up with glass skin without spending ₹10,000!',
       aspectRatio: '9:16',
@@ -151,30 +151,9 @@ async function run() {
   const acceptData = await acceptRes.json();
   console.log(`• Status: ${acceptRes.status} | Collab Status: ${acceptData.status}`);
   if (acceptData.status === 'CREATOR_ACCEPTED') {
-    console.log('✅ Action 2A Passed: Brief accepted by creator!\n');
+    console.log('✅ Action 2A Passed: Brief accepted by creator! Direct transition to draft production.\n');
   } else {
     console.error('❌ Action 2A Failed.');
-    process.exit(1);
-  }
-
-  // 2B: Merchant/EVOC Dispatches Product Sample with Courier & Tracking
-  console.log('▶️ Action 2B: Dispatch Sample (PATCH /api/collabs/:id/sample-dispatched)...');
-  const sampleRes = await fetch(`http://localhost:4000/api/collabs/${collabId}/sample-dispatched`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${merchantToken}` },
-    body: JSON.stringify({
-      courierName: 'BlueDart Express',
-      trackingNumber: 'BD77889922IN',
-      trackingUrl: 'https://bluedart.com/track/BD77889922IN'
-    })
-  });
-  const sampleData = await sampleRes.json();
-  console.log(`• Status: ${sampleRes.status} | Collab Status: ${sampleData.status}`);
-  console.log(`• Courier: ${sampleData.courierName} | Tracking: ${sampleData.trackingNumber}`);
-  if (sampleData.status === 'SAMPLE_DISPATCHED') {
-    console.log('✅ Action 2B Passed: Sample dispatch and tracking details logged!\n');
-  } else {
-    console.error('❌ Action 2B Failed.');
     process.exit(1);
   }
 

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import crypto from 'crypto';
 import { z } from 'zod';
 import { prisma, CollabStatus, UserRole } from '@evoc/database';
 import { requireAuth, requireRole } from '../middleware/auth.js';
@@ -27,19 +28,6 @@ const MerchantApprovalSchema = z.object({
   notes: z.string().optional()
 });
 
-const SampleDispatchedSchema = z
-  .object({
-    courierName: z.string().optional(),
-    courierPartner: z.string().optional(),
-    trackingNumber: z.string().min(3, 'Tracking number is required'),
-    trackingUrl: z.string().url().optional(),
-    estimatedDeliveryDate: z.string().optional()
-  })
-  .refine(
-    (data) => !!(data.courierName || data.courierPartner),
-    { message: 'Courier name/partner is required (e.g., BlueDart, Delhivery)', path: ['courierName'] }
-  );
-
 const DeclineBriefSchema = z.object({
   reason: z.string().optional()
 });
@@ -51,7 +39,7 @@ collabsRouter.post(
   '/',
   requireAuth,
   requireRole(UserRole.MERCHANT),
-  antiLeakScan(['productName', 'scriptGuidelines', 'videoHooks'], ['productLink']),
+  antiLeakScan(['productName', 'scriptGuidelines', 'videoHooks']),
   async (req, res) => {
     try {
       const validated = CreateCollabBriefSchema.parse(req.body);
@@ -62,7 +50,7 @@ collabsRouter.post(
       });
 
       if (!merchant) {
-        return res.status(404).json({ error: 'Merchant profile not found' });
+        return res.status(401).json({ error: 'Merchant profile not found or session expired' });
       }
 
       // Verify targeted creator exists
@@ -74,10 +62,10 @@ collabsRouter.post(
         return res.status(404).json({ error: 'Creator not found' });
       }
 
-      // Generate unique UTM tracking slug
-      const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+      // Generate unique high-entropy UTM tracking slug (e.g. evoc_tarayu_8f3a9e2d1c4b)
+      const uniqueEntropy = crypto.randomBytes(6).toString('hex');
       const cleanBrand = merchant.brandName.toLowerCase().replace(/[^a-z0-9]/g, '');
-      const utmTrackingSlug = `evoc_${cleanBrand}_${randomSuffix}`;
+      const utmTrackingSlug = `evoc_${cleanBrand}_${uniqueEntropy}`;
 
       // Create collaboration in BRIEF_SUBMITTED status
       const collab = await prisma.collaborationRequest.create({
@@ -85,8 +73,8 @@ collabsRouter.post(
           merchantId: merchant.id,
           creatorId: validated.creatorId,
           productName: validated.productName,
-          productLink: validated.productLink,
           productPrice: validated.productPrice,
+          productUrl: validated.productUrl,
           scriptGuidelines: validated.scriptGuidelines,
           videoHooks: validated.videoHooks,
           aspectRatio: validated.aspectRatio,
@@ -135,7 +123,7 @@ collabsRouter.get(
       });
 
       if (!merchant) {
-        return res.status(404).json({ error: 'Merchant profile not found' });
+        return res.status(401).json({ error: 'Merchant profile not found or session expired' });
       }
 
       const { tab } = req.query;
@@ -148,9 +136,7 @@ collabsRouter.get(
           in: [
             CollabStatus.BRIEF_SUBMITTED,
             CollabStatus.EVOC_APPROVED,
-            CollabStatus.CREATOR_ACCEPTED,
-            CollabStatus.SAMPLE_DISPATCHED,
-            CollabStatus.CAMPAIGN_ACTIVE
+            CollabStatus.CREATOR_ACCEPTED
           ]
         };
       } else if (tab === 'in_review') {
@@ -165,6 +151,7 @@ collabsRouter.get(
         whereClause.status = {
           in: [
             CollabStatus.ASSET_DELIVERED,
+            CollabStatus.CAMPAIGN_ACTIVE,
             CollabStatus.COMPLETED
           ]
         };
@@ -214,7 +201,9 @@ collabsRouter.get(
           collab.status === CollabStatus.COMPLETED
         ) {
           const brandDomain = merchant.brandName.toLowerCase().replace(/[^a-z0-9]/g, '');
-          data.metaAdsUtmLink = `https://${brandDomain}.com/p?utm_content=${collab.utmTrackingSlug}&utm_source=meta&utm_medium=ugc_ad`;
+          const baseUrl = collab.productUrl || `https://${brandDomain}.com/p`;
+          const joinChar = baseUrl.includes('?') ? '&' : '?';
+          data.metaAdsUtmLink = `${baseUrl}${joinChar}utm_content=${collab.utmTrackingSlug}&utm_source=meta&utm_medium=ugc_ad`;
         }
 
         return data;
@@ -259,8 +248,7 @@ collabsRouter.get(
           merchant: {
             select: {
               id: true,
-              brandName: true,
-              websiteUrl: true
+              brandName: true
             }
           }
         },
@@ -276,15 +264,13 @@ collabsRouter.get(
         creatorId: collab.creator.id,
         creatorCategory: collab.creator.category,
         productName: collab.productName,
-        productLink: collab.productLink,
         aspectRatio: collab.aspectRatio,
         scriptGuidelines: collab.scriptGuidelines,
         videoHooks: collab.videoHooks,
         draftVideoUrl: collab.draftVideoUrl, // Private Cloudflare R2 video URL
         status: collab.status,
         submittedAt: collab.updatedAt,
-        merchantBrand: collab.merchant.brandName,
-        merchantWebsite: collab.merchant.websiteUrl
+        merchantBrand: collab.merchant.brandName
       }));
 
       res.json({
@@ -314,7 +300,7 @@ collabsRouter.get(
       });
 
       if (!creator) {
-        return res.status(404).json({ error: 'Creator profile not found' });
+        return res.status(401).json({ error: 'Creator profile not found or session expired' });
       }
 
       const { status } = req.query;
@@ -329,8 +315,7 @@ collabsRouter.get(
           merchant: {
             select: {
               id: true,
-              brandName: true,
-              websiteUrl: true
+              brandName: true
             }
           }
         },
@@ -341,9 +326,7 @@ collabsRouter.get(
         id: collab.id,
         collabId: collab.id,
         brandName: collab.merchant.brandName,
-        merchantWebsite: collab.merchant.websiteUrl,
         productName: collab.productName,
-        productLink: collab.productLink,
         productPrice: Number(collab.productPrice),
         commissionPointsPerSale: collab.commissionPointsPerSale,
         deliverableType: collab.deliverableType,
@@ -351,13 +334,6 @@ collabsRouter.get(
         status: collab.status,
         scriptGuidelines: collab.scriptGuidelines,
         videoHooks: collab.videoHooks,
-        courierTracking: collab.trackingNumber
-          ? `${collab.courierName || 'Courier'} - ${collab.trackingNumber}`
-          : undefined,
-        courierName: collab.courierName,
-        trackingNumber: collab.trackingNumber,
-        trackingUrl: collab.trackingUrl,
-        sampleDispatchedAt: collab.sampleDispatchedAt,
         draftVideoUrl: collab.draftVideoUrl,
         evocReviewNotes: collab.evocReviewNotes,
         merchantReviewNotes: collab.merchantReviewNotes,
@@ -394,7 +370,7 @@ collabsRouter.patch(
       });
 
       if (!creator) {
-        return res.status(404).json({ error: 'Creator profile not found' });
+        return res.status(401).json({ error: 'Creator profile not found or session expired' });
       }
 
       const collab = await prisma.collaborationRequest.findUnique({ where: { id } });
@@ -429,7 +405,7 @@ collabsRouter.patch(
 
       res.json({
         success: true,
-        message: 'Collaboration brief accepted! Waiting for merchant/EVOC logistics sample dispatch.',
+        message: 'Collaboration brief accepted! You can now produce and submit your video draft.',
         status: updated.status,
         collabId: updated.id
       });
@@ -456,7 +432,7 @@ collabsRouter.patch(
       });
 
       if (!creator) {
-        return res.status(404).json({ error: 'Creator profile not found' });
+        return res.status(401).json({ error: 'Creator profile not found or session expired' });
       }
 
       const collab = await prisma.collaborationRequest.findUnique({ where: { id } });
@@ -505,71 +481,7 @@ collabsRouter.patch(
 );
 
 // ============================================================================
-// 5. PATCH /api/collabs/:id/sample-dispatched (Takes courierPartner/courierName, trackingNumber, estimatedDeliveryDate)
-// ============================================================================
-collabsRouter.patch(
-  '/:id/sample-dispatched',
-  requireAuth,
-  async (req, res) => {
-    try {
-      const { id } = req.params;
-      const user = req.user!;
-      const validated = SampleDispatchedSchema.parse(req.body);
-      const courier = (validated.courierName || validated.courierPartner)!;
-
-      const collab = await prisma.collaborationRequest.findUnique({ where: { id } });
-      if (!collab) {
-        return res.status(404).json({ error: 'Collaboration request not found' });
-      }
-
-      // Authorization Check: Must be Merchant Owner or Super Admin
-      let isAuthorized = user.role === UserRole.SUPER_ADMIN;
-      if (user.role === UserRole.MERCHANT) {
-        const merchant = await prisma.merchantProfile.findUnique({ where: { userId: user.userId } });
-        if (merchant && merchant.id === collab.merchantId) {
-          isAuthorized = true;
-        }
-      }
-
-      if (!isAuthorized) {
-        return res.status(403).json({ error: 'Forbidden: Only the merchant or EVOC Ops can dispatch samples' });
-      }
-
-      // State Machine Guard: Collab must be in CREATOR_ACCEPTED or BRIEF_SUBMITTED
-      if (collab.status !== CollabStatus.CREATOR_ACCEPTED && collab.status !== CollabStatus.BRIEF_SUBMITTED) {
-        return res.status(400).json({
-          error: `Cannot dispatch sample while collab is in status '${collab.status}'. Creator must accept first.`
-        });
-      }
-
-      const updated = await prisma.collaborationRequest.update({
-        where: { id },
-        data: {
-          status: CollabStatus.SAMPLE_DISPATCHED,
-          courierName: courier,
-          trackingNumber: validated.trackingNumber,
-          trackingUrl: validated.trackingUrl || null,
-          sampleDispatchedAt: new Date()
-        }
-      });
-
-      res.json({
-        success: true,
-        message: 'Product sample dispatched! Tracking details logged for creator.',
-        status: updated.status,
-        courierName: updated.courierName,
-        trackingNumber: updated.trackingNumber,
-        trackingUrl: updated.trackingUrl,
-        estimatedDeliveryDate: validated.estimatedDeliveryDate || null
-      });
-    } catch (err: any) {
-      res.status(400).json({ error: err.message || 'Failed to record sample dispatch' });
-    }
-  }
-);
-
-// ============================================================================
-// 6. POST /api/collabs/:id/draft (Creator uploads private draft video)
+// 5. POST /api/collabs/:id/draft (Creator uploads private draft video)
 // ============================================================================
 collabsRouter.post(
   '/:id/draft',
@@ -586,7 +498,7 @@ collabsRouter.post(
       });
 
       if (!creator) {
-        return res.status(404).json({ error: 'Creator profile not found' });
+        return res.status(401).json({ error: 'Creator profile not found or session expired' });
       }
 
       // 2. Fetch collaboration
@@ -607,13 +519,12 @@ collabsRouter.post(
       const allowedUploadStates: CollabStatus[] = [
         CollabStatus.BRIEF_SUBMITTED,
         CollabStatus.CREATOR_ACCEPTED,
-        CollabStatus.SAMPLE_DISPATCHED,
         CollabStatus.DRAFT_REVISION_REQUESTED
       ];
 
       if (!allowedUploadStates.includes(collab.status)) {
         return res.status(400).json({
-          error: `Cannot upload draft: Collaboration is in status '${collab.status}'. Draft upload is only allowed when status is BRIEF_SUBMITTED, CREATOR_ACCEPTED, SAMPLE_DISPATCHED, or DRAFT_REVISION_REQUESTED.`
+          error: `Cannot upload draft: Collaboration is in status '${collab.status}'. Draft upload is only allowed when status is BRIEF_SUBMITTED, CREATOR_ACCEPTED, or DRAFT_REVISION_REQUESTED.`
         });
       }
 
@@ -658,14 +569,14 @@ collabsRouter.get(
       });
 
       if (!creator) {
-        return res.status(404).json({ error: 'Creator profile not found' });
+        return res.status(401).json({ error: 'Creator profile not found or session expired' });
       }
 
       const collabs = await prisma.collaborationRequest.findMany({
         where: { creatorId: creator.id },
         include: {
           merchant: {
-            select: { id: true, brandName: true, websiteUrl: true }
+            select: { id: true, brandName: true }
           }
         },
         orderBy: { createdAt: 'desc' }
@@ -686,9 +597,6 @@ collabsRouter.get(
         // Revision feedback from EVOC Ops is shared only when a re-shoot is requested
         revisionNotes:
           collab.status === CollabStatus.DRAFT_REVISION_REQUESTED ? collab.evocReviewNotes : undefined,
-        courierTracking: collab.trackingNumber
-          ? `${collab.courierName ?? 'Courier'}: ${collab.trackingNumber}`
-          : undefined,
         createdAt: collab.createdAt
       }));
 
@@ -712,7 +620,7 @@ collabsRouter.get(
       const collabs = await prisma.collaborationRequest.findMany({
         include: {
           merchant: {
-            select: { id: true, brandName: true, websiteUrl: true }
+            select: { id: true, brandName: true }
           },
           creator: {
             select: { id: true, displayAlias: true, category: true }
@@ -744,7 +652,7 @@ collabsRouter.get(
         where: { id },
         include: {
           merchant: {
-            select: { id: true, brandName: true, websiteUrl: true }
+            select: { id: true, brandName: true }
           },
           creator: {
             select: { id: true, displayAlias: true, category: true, contentStyles: true }
@@ -791,15 +699,20 @@ collabsRouter.get(
         responseData.draftStatusNotice = 'Creator submitted draft — Under EVOC Quality Review';
       }
 
-      // SECURITY RULE: Internal Admin Notes Privacy
+      // SECURITY RULE: Internal Admin Notes & Product URL Privacy
       if (!isAdmin) {
         delete responseData.evocReviewNotes;
+      }
+      if (isCreatorOwner) {
+        delete (responseData as any).productUrl;
       }
 
       // Attach Asset Handoff details for delivered assets
       if (collab.status === CollabStatus.ASSET_DELIVERED || collab.status === CollabStatus.CAMPAIGN_ACTIVE || collab.status === CollabStatus.COMPLETED) {
         const brandDomain = collab.merchant.brandName.toLowerCase().replace(/[^a-z0-9]/g, '');
-        responseData.metaAdsUtmLink = `https://${brandDomain}.com/p?utm_content=${collab.utmTrackingSlug}&utm_source=meta&utm_medium=ugc_ad`;
+        const baseUrl = collab.productUrl || `https://${brandDomain}.com/p`;
+        const joinChar = baseUrl.includes('?') ? '&' : '?';
+        responseData.metaAdsUtmLink = `${baseUrl}${joinChar}utm_content=${collab.utmTrackingSlug}&utm_source=meta&utm_medium=ugc_ad`;
       }
 
       res.json({ collab: responseData });
@@ -901,7 +814,7 @@ collabsRouter.patch(
       });
 
       if (!merchant) {
-        return res.status(404).json({ error: 'Merchant profile not found' });
+        return res.status(401).json({ error: 'Merchant profile not found or session expired' });
       }
 
       // 2. Fetch collaboration
@@ -923,7 +836,7 @@ collabsRouter.patch(
       }
 
       // 5. Update Status & Generate Asset Handoff
-      const nextStatus = approved ? CollabStatus.ASSET_DELIVERED : CollabStatus.DRAFT_PENDING_MERCHANT;
+      const nextStatus = approved ? CollabStatus.ASSET_DELIVERED : CollabStatus.DRAFT_REVISION_REQUESTED;
       const approvedVideoUrl = approved ? (collab.draftVideoUrl || null) : null;
 
       const updated = await prisma.collaborationRequest.update({
@@ -936,9 +849,11 @@ collabsRouter.patch(
       });
 
       const brandDomain = merchant.brandName.toLowerCase().replace(/[^a-z0-9]/g, '');
-      const metaAdsUtmLink = `https://${brandDomain}.com/p?utm_content=${updated.utmTrackingSlug}&utm_source=meta&utm_medium=ugc_ad`;
+      const baseUrl = updated.productUrl || `https://${brandDomain}.com/p`;
+      const joinChar = baseUrl.includes('?') ? '&' : '?';
+      const metaAdsUtmLink = `${baseUrl}${joinChar}utm_content=${updated.utmTrackingSlug}&utm_source=meta&utm_medium=ugc_ad`;
 
-      // Dispatch async notifications on approval (fire-and-forget)
+      // Dispatch async notifications on approval or correction request (fire-and-forget)
       if (approved) {
         dispatchAssetApproved({
           collabId: updated.id,
@@ -947,12 +862,19 @@ collabsRouter.patch(
           approvedVideoUrl: approvedVideoUrl ?? '',
           utmTrackingSlug: updated.utmTrackingSlug ?? undefined
         }).catch((err) => console.error('[Queue] dispatchAssetApproved failed:', err.message));
+      } else {
+        dispatchDraftRevisionRequested({
+          collabId: updated.id,
+          creatorId: collab.creatorId,
+          revisionReason: 'Merchant Correction Request',
+          reviewNotes: notes || 'Merchant requested adjustments on the submitted video.'
+        }).catch((err) => console.error('[Queue] dispatchDraftRevisionRequested failed:', err.message));
       }
 
       res.json({
         message: approved
           ? 'Final approval recorded! High-res asset delivered and Meta Ads UTM link generated.'
-          : 'Merchant feedback recorded. Collab remains pending merchant review.',
+          : 'Corrections requested. Collaboration moved to DRAFT_REVISION_REQUESTED for creator fixes.',
         status: updated.status,
         downloadableAssetUrl: updated.approvedVideoUrl,
         utmTrackingLink: metaAdsUtmLink,
@@ -1010,7 +932,9 @@ collabsRouter.get(
       }
 
       const brandDomain = collab.merchant.brandName.toLowerCase().replace(/[^a-z0-9]/g, '');
-      const metaAdsUtmLink = `https://${brandDomain}.com/p?utm_content=${collab.utmTrackingSlug}&utm_source=meta&utm_medium=ugc_ad`;
+      const baseUrl = collab.productUrl || `https://${brandDomain}.com/p`;
+      const joinChar = baseUrl.includes('?') ? '&' : '?';
+      const metaAdsUtmLink = `${baseUrl}${joinChar}utm_content=${collab.utmTrackingSlug}&utm_source=meta&utm_medium=ugc_ad`;
       const downloadableAssetUrl = collab.approvedVideoUrl || collab.draftVideoUrl;
       if (!downloadableAssetUrl) {
         return res.status(404).json({ error: 'No video asset found for this collaboration' });

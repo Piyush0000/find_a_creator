@@ -95,3 +95,53 @@ export async function generateR2PresignedUrl(options: GeneratePresignedUrlOption
     maxSizeBytes: MAX_VIDEO_SIZE_BYTES
   };
 }
+
+export interface StreamUploadToR2Options {
+  stream: any;
+  contentLength: number;
+  filename: string;
+  contentType: string;
+  folder?: string;
+}
+
+/**
+ * Streams binary video directly into Cloudflare R2 edge storage.
+ * Eliminates browser CORS preflight blocks while preserving R2 storage.
+ */
+export async function uploadStreamToR2(options: StreamUploadToR2Options) {
+  const { stream, contentLength, filename, contentType, folder = 'drafts' } = options;
+
+  if (contentLength > MAX_VIDEO_SIZE_BYTES) {
+    throw new Error(`File size ${Math.round(contentLength / (1024 * 1024))}MB exceeds maximum allowed limit of 150MB.`);
+  }
+
+  const bucketName = getRequiredEnv('R2_BUCKET_NAME');
+  const publicDomain = getRequiredEnv('R2_PUBLIC_DOMAIN');
+
+  const ext = filename.split('.').pop()?.toLowerCase() || (contentType.includes('quicktime') ? 'mov' : 'mp4');
+  const uniqueId = crypto.randomBytes(6).toString('hex');
+  const safeBaseName = filename
+    .replace(/\.[^/.]+$/, '')
+    .replace(/[^a-zA-Z0-9-_]/g, '_')
+    .slice(0, 30);
+  const key = `${folder}/${Date.now()}-${uniqueId}-${safeBaseName}.${ext}`;
+
+  const client = getR2Client();
+  const command = new PutObjectCommand({
+    Bucket: bucketName,
+    Key: key,
+    ContentType: contentType,
+    Body: stream,
+    ContentLength: contentLength
+  });
+
+  await client.send(command);
+
+  const publicUrl = `${publicDomain.replace(/\/$/, '')}/${key}`;
+
+  return {
+    publicUrl,
+    key,
+    fileSizeBytes: contentLength
+  };
+}
