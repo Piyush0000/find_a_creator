@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
+import { presignLimiter } from '../middleware/rateLimiter.js';
 import {
   generateR2PresignedUrl,
   MAX_VIDEO_SIZE_BYTES
@@ -38,6 +39,7 @@ const PresignedUrlRequestSchema = z
 // Generates a 15-minute S3-compatible Cloudflare R2 PUT URL for direct browser upload
 mediaRouter.post(
   '/presigned-url',
+  presignLimiter,
   requireAuth,
   async (req, res) => {
     try {

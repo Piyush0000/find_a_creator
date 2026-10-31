@@ -6,23 +6,21 @@
 
 export class WapiService {
   private baseUrl: string;
-  private token: string;
-  private vendorUid: string;
+  private token: string | null;
+  private vendorUid: string | null;
 
   constructor() {
     this.baseUrl = (process.env.WAPI_BASE_URL || 'https://app.wapi.in.net/api').replace(/\/+$/, '');
+    this.token = process.env.WAPI_TOKEN ? process.env.WAPI_TOKEN.trim() : null;
+    this.vendorUid = process.env.WAPI_VENDOR_UID ? process.env.WAPI_VENDOR_UID.trim() : null;
 
-    const token = process.env.WAPI_TOKEN;
-    const vendorUid = process.env.WAPI_VENDOR_UID;
-
-    if (!token || !vendorUid) {
-      throw new Error(
-        '❌ [CONFIG ERROR] Missing WAPI credentials in environment variables! Both WAPI_TOKEN and WAPI_VENDOR_UID are required.'
-      );
+    if (!this.token || !this.vendorUid) {
+      console.log('ℹ️  [WAPI] Running in offline/stub mode (WAPI_TOKEN or WAPI_VENDOR_UID not set). Excluded from developer scope.');
     }
+  }
 
-    this.token = token.trim();
-    this.vendorUid = vendorUid.trim();
+  isConfigured(): boolean {
+    return !!(this.token && this.vendorUid);
   }
 
   get vendorBaseUrl(): string {
@@ -52,6 +50,11 @@ export class WapiService {
     templateLanguage: string = 'en',
     fields: Record<string, string> = {}
   ): Promise<{ success: boolean; log_uid?: string; data?: any; error?: string }> {
+    if (!this.isConfigured()) {
+      console.log(`ℹ️  [WAPI] Skipped template '${templateName}' to ${phoneNumber}: WAPI credentials not configured in environment.`);
+      return { success: true, log_uid: 'stub_skipped' };
+    }
+
     const formattedPhone = this.formatPhone(phoneNumber);
     if (!formattedPhone || formattedPhone.length < 10) {
       console.warn(`⚠️ [WAPI] Skipped: Invalid phone number '${phoneNumber}'`);
@@ -100,6 +103,11 @@ export class WapiService {
     phoneNumber: string,
     messageBody: string
   ): Promise<{ success: boolean; log_uid?: string; error?: string }> {
+    if (!this.isConfigured()) {
+      console.log(`ℹ️  [WAPI] Skipped text to ${phoneNumber}: WAPI credentials not configured in environment.`);
+      return { success: true, log_uid: 'stub_skipped' };
+    }
+
     const formattedPhone = this.formatPhone(phoneNumber);
     const url = `${this.vendorBaseUrl}/contact/send-message`;
 

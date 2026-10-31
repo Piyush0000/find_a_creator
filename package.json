@@ -29,7 +29,8 @@
     "test:r2-upload": "pnpm --filter @evoc/api test:r2-upload",
     "test:settlement-cron": "pnpm --filter @evoc/api test:settlement-cron",
     "test:comprehensive-live": "pnpm --filter @evoc/api test:comprehensive-live",
-    "test:day6": "pnpm --filter @evoc/api test:day6"
+    "test:day6": "pnpm --filter @evoc/api test:day6",
+    "test:day7": "pnpm --filter @evoc/api test:day7"
   },
   "devDependencies": {
     "prettier": "^3.3.3",

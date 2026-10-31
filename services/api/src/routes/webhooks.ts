@@ -9,14 +9,15 @@ export const webhooksRouter = Router();
 // POST /api/webhooks/order-completed (EVOC Checkout Webhook)
 webhooksRouter.post('/order-completed', async (req, res) => {
   try {
-    // Recommendation 1: Webhook Secret Authentication Gate
+    // 1. Strict Webhook Secret Authentication Gate (Zero Fallback Policy)
     const configuredSecret = process.env.CHECKOUT_WEBHOOK_SECRET;
-    if (!configuredSecret) {
-      return res.status(500).json({ error: 'Server misconfiguration: CHECKOUT_WEBHOOK_SECRET is not configured in .env' });
+    if (!configuredSecret || configuredSecret.trim() === '') {
+      throw new Error('[Webhook] Missing required environment variable: CHECKOUT_WEBHOOK_SECRET');
     }
 
     const incomingSecret = req.headers['x-webhook-secret'];
-    if (!incomingSecret || incomingSecret !== configuredSecret) {
+    const resolvedSecret = Array.isArray(incomingSecret) ? incomingSecret[0] : incomingSecret;
+    if (!resolvedSecret || resolvedSecret !== configuredSecret) {
       return res.status(401).json({ error: 'Unauthorized: Invalid or missing webhook signature' });
     }
 
@@ -36,11 +37,15 @@ webhooksRouter.post('/order-completed', async (req, res) => {
       return res.status(200).json({ received: true, note: 'No matching creator campaign found' });
     }
 
-    // Calculate Points (10% commission on order value)
-    const pointsEarned = Math.round(Number(payload.orderTotal) * 0.1);
+    // 2. Commission Points Calculation: Use collab commissionPointsPerSale, fallback to 10% of order total
+    const pointsEarned =
+      collab.commissionPointsPerSale !== null &&
+      collab.commissionPointsPerSale !== undefined &&
+      collab.commissionPointsPerSale > 0
+        ? collab.commissionPointsPerSale
+        : Math.round(Number(payload.orderTotal) * 0.1);
 
-    // Call Sai's PointsService to atomically & idempotently record order attribution,
-    // lock points in ledger, and increment creator balance
+    // 3. Atomically & idempotently record order attribution, lock points in ledger, and credit creator balance
     const result = await PointsService.recordOrderCommission({
       collabId: collab.id,
       creatorId: collab.creatorId,
@@ -61,7 +66,7 @@ webhooksRouter.post('/order-completed', async (req, res) => {
 
     console.log(`⚡ Order Webhook: ${pointsEarned} EVOC Points credited to Creator ${collab.creator.displayAlias}`);
 
-    // Dispatch WhatsApp template alert to Creator
+    // 4. Dispatch WhatsApp template alert to Creator (non-blocking)
     dispatchOrderCommissionCredited({
       collabId: collab.id,
       creatorId: collab.creatorId,
@@ -76,10 +81,13 @@ webhooksRouter.post('/order-completed', async (req, res) => {
       creatorId: collab.creatorId,
       orderId: payload.orderId,
       pointsEarned,
+      pointsCredited: pointsEarned,
       pointsStatus: 'LOCKED',
-      unlockNotice: 'Points locked for 14-day return window'
+      unlockNotice: 'Points locked for 14-day return window',
+      newBalance: result.newBalance
     });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Webhook processing failed' });
+  } catch (error: any) {
+    console.error('Webhook Error:', error);
+    res.status(400).json({ error: error.message || 'Webhook processing failed' });
   }
 });

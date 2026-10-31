@@ -179,6 +179,8 @@ model CollaborationRequest {
   creator                 CreatorProfile  @relation(fields: [creatorId], references: [id], onDelete: Cascade)
   attributions            OrderAttribution[]
 
+  @@index([creatorId, status])
+  @@index([merchantId, status])
   @@map("collaboration_requests")
 }
 
