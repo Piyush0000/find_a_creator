@@ -29,7 +29,24 @@ export const app = express();
 const PORT = process.env.PORT || 4000;
 
 app.use(helmet());
-app.use(cors());
+
+// Production-grade CORS configuration
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim())
+  : [process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'];
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error(`CORS blocked: Origin ${origin} not allowed`));
+    },
+    credentials: true
+  })
+);
+
 app.use(express.json());
 app.use(morgan('dev'));
 
@@ -46,6 +63,6 @@ app.use('/api/webhooks', webhooksRouter);
 app.use('/api/media', mediaRouter);
 app.use('/api/admin', adminRouter);
 
-app.listen(PORT, () => {
-  console.log(`🚀 EVOC Creator Network API listening on http://localhost:${PORT}`);
+app.listen(Number(PORT), '0.0.0.0', () => {
+  console.log(`🚀 EVOC Creator Network API listening on http://0.0.0.0:${PORT}`);
 });

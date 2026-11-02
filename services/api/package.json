@@ -17,7 +17,7 @@
     "test:day7": "tsx --env-file=../../.env ../../scripts/test-day7.ts",
     "test:whatsapp": "tsx --env-file=../../.env ../../scripts/test-whatsapp-wapi.ts",
     "build": "tsc",
-    "start": "node dist/main.js"
+    "start": "tsx src/main.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.670.0",
