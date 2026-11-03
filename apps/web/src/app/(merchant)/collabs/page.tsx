@@ -257,7 +257,10 @@ export default function MerchantCollabsPage() {
       <main className="mx-auto max-w-7xl px-6 py-8 space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900">Collabs Hub</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
+              <span>Collabs Hub</span>
+              <span className="rounded-full bg-rose-50 border border-rose-200 px-2 py-0.5 text-[10px] text-rose-700 font-bold uppercase tracking-wider">Merchant Portal</span>
+            </h1>
             <p className="mt-1 text-xs text-slate-500">
               Track and inspect every brief from dispatch to final ad asset handoff.
             </p>
@@ -292,7 +295,7 @@ export default function MerchantCollabsPage() {
             <p className="text-xs text-slate-500">No briefs yet. Pick a creator and send your first video ad brief.</p>
             <Link
               href="/creators"
-              className="inline-flex items-center space-x-1.5 rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 transition"
+              className="inline-flex items-center space-x-1.5 rounded-lg bg-gradient-to-r from-rose-600 to-rose-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm shadow-rose-500/25 hover:from-rose-500 hover:to-rose-600 transition"
             >
               <span>Create Brief</span>
             </Link>
@@ -310,14 +313,14 @@ export default function MerchantCollabsPage() {
                     onClick={() => setActiveTab(tab)}
                     className={`-mb-px inline-flex items-center space-x-1.5 border-b-2 px-3 py-2 text-xs font-semibold transition ${
                       isActive
-                        ? 'border-indigo-600 text-indigo-600'
+                        ? 'border-rose-600 text-rose-600'
                         : 'border-transparent text-slate-500 hover:text-slate-800'
                     }`}
                   >
                     <span>{TAB_GROUPS[tab].label}</span>
                     <span
                       className={`rounded-full px-1.5 py-0.5 text-[10px] ${
-                        isActive ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-500'
+                        isActive ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-slate-100 text-slate-500'
                       }`}
                     >
                       {count}
@@ -341,21 +344,21 @@ export default function MerchantCollabsPage() {
                   <div
                     key={collab.id}
                     onClick={() => setSelectedCollabDetail(collab)}
-                    className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.03)] space-y-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md hover:border-indigo-300 cursor-pointer group"
+                    className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.03)] space-y-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md hover:border-rose-300 cursor-pointer group"
                   >
                     <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                       <div>
                         <div className="flex items-center gap-2">
-                          <h3 className="text-sm font-bold text-slate-900 group-hover:text-indigo-600 transition">
+                          <h3 className="text-sm font-bold text-slate-900 group-hover:text-rose-600 transition">
                             {collab.productName}
                           </h3>
                           <span className="text-xs text-slate-400 font-normal">· ₹{collab.productPrice}</span>
                         </div>
                         <p className="text-[11px] text-slate-500 mt-0.5">
                           Creator: <strong className="text-slate-700">{collab.creator?.displayAlias}</strong> ({collab.creator?.category}) • {collab.deliverableType} • {collab.aspectRatio} •{' '}
-                          <span className="font-semibold text-indigo-600">+{collab.commissionPointsPerSale} pts/sale</span>
+                          <span className="font-semibold text-rose-600">+{collab.commissionPointsPerSale} pts/sale</span>
                         </p>
-                        <p className="text-[10px] text-slate-400 mt-0.5">
+                        <p className="text-[10px] text-slate-500 mt-0.5">
                           Sent {new Date(collab.createdAt).toLocaleDateString()}
                         </p>
                       </div>

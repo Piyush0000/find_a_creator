@@ -20,16 +20,16 @@ export function refreshPointsBadge() {
 }
 
 const ROLE_BADGES: Record<PortalRole, { label: string; className: string }> = {
-  CREATOR: { label: 'Creator', className: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
-  MERCHANT: { label: 'Merchant', className: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-  SUPER_ADMIN: { label: 'Super Admin', className: 'bg-amber-50 text-amber-700 border-amber-200' }
+  CREATOR: { label: 'Creator', className: 'bg-rose-50 text-rose-700 border-rose-200 font-semibold' },
+  MERCHANT: { label: 'Merchant', className: 'bg-slate-100 text-slate-800 border-slate-200 font-semibold' },
+  SUPER_ADMIN: { label: 'Super Admin', className: 'bg-amber-50 text-amber-700 border-amber-200 font-semibold' }
 };
 
 interface StoredUser {
   email?: string;
   role?: string;
   merchantProfile?: { brandName?: string };
-  creatorProfile?: { displayAlias?: string };
+  creatorProfile?: { displayAlias?: string; avatarUrl?: string };
 }
 
 const getDisplayName = (user: StoredUser) =>
@@ -84,6 +84,24 @@ export default function AppShell({ role, children }: AppShellProps) {
     } catch {
       setUser(null);
     }
+
+    // Refresh live profile from /api/auth/me so any brand/alias updates reflect immediately
+    const token = localStorage.getItem('evoc_token');
+    if (token) {
+      fetch(`${API_BASE}/api/auth/me`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data?.user) {
+            localStorage.setItem('evoc_user', JSON.stringify(data.user));
+            if (data.user.role === role) {
+              setUser(data.user);
+            }
+          }
+        })
+        .catch(() => {});
+    }
   }, [role, pathname]);
 
   // Live Points Counter (creators only)
@@ -120,7 +138,7 @@ export default function AppShell({ role, children }: AppShellProps) {
 
   return (
     <ToastProvider>
-      <div className="min-h-screen bg-slate-50">
+      <div className="min-h-screen bg-slate-50 text-slate-900">
         <Sidebar
           role={role}
           isMobileOpen={isSidebarOpen}
@@ -131,7 +149,7 @@ export default function AppShell({ role, children }: AppShellProps) {
 
         <div className={`transition-all duration-200 ${isSidebarCollapsed ? 'lg:pl-[72px]' : 'lg:pl-[260px]'}`}>
           {/* Header Bar */}
-          <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200 bg-white px-4 sm:px-6">
+          <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200/80 bg-white/95 backdrop-blur-md px-4 sm:px-6">
             <button
               onClick={() => setIsSidebarOpen(true)}
               className="lg:hidden rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition"
@@ -158,10 +176,18 @@ export default function AppShell({ role, children }: AppShellProps) {
                     {roleBadge.label}
                   </span>
 
-                  <div className="flex items-center space-x-2 rounded-full border border-slate-200 bg-white py-1 pl-1 pr-3">
-                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-indigo-600 text-[11px] font-bold text-white">
-                      {getInitials(displayName)}
-                    </span>
+                  <div className="flex items-center space-x-2 rounded-full border border-slate-200 bg-white py-1 pl-1 pr-3 shadow-xs">
+                    {user.creatorProfile?.avatarUrl ? (
+                      <img
+                        src={user.creatorProfile.avatarUrl}
+                        alt="Profile"
+                        className="h-7 w-7 rounded-full object-cover border border-slate-200"
+                      />
+                    ) : (
+                      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-tr from-rose-600 to-rose-500 text-[11px] font-bold text-white shadow-sm shadow-rose-500/25">
+                        {getInitials(displayName)}
+                      </span>
+                    )}
                     <span className="hidden md:block max-w-[200px] truncate text-xs font-semibold text-slate-800">
                       {displayName}
                     </span>
@@ -178,7 +204,7 @@ export default function AppShell({ role, children }: AppShellProps) {
               ) : (
                 <Link
                   href={`/login?redirect=${encodeURIComponent(pathname || '/')}`}
-                  className="rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 transition"
+                  className="rounded-lg bg-gradient-to-r from-rose-600 to-rose-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm shadow-rose-500/25 hover:from-rose-500 hover:to-rose-600 transition"
                 >
                   Sign In
                 </Link>

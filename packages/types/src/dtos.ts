@@ -55,3 +55,19 @@ export const EvocReviewSchema = z.object({
   notes: z.string().optional(),
   rejectionTags: z.array(z.enum(REVIEW_REJECTION_TAGS)).optional()
 });
+
+export const UpdateCreatorProfileSchema = z.object({
+  displayAlias: z.string().min(2, 'Display name must be at least 2 characters').optional(),
+  category: z.string().min(2).optional(),
+  city: z.string().optional().nullable(),
+  bioSummary: z.string().optional().nullable(),
+  contentStyles: z.array(z.string()).optional(),
+  avatarUrl: z.string().url().optional().nullable()
+});
+
+export const CreatePortfolioItemSchema = z.object({
+  videoUrl: z.string().url('Valid video URL required'),
+  caption: z.string().min(2, 'Caption must be at least 2 characters').optional().nullable(),
+  thumbnailUrl: z.string().url().optional().nullable(),
+  aspectRatio: z.enum(['9:16', '16:9', '1:1']).default('9:16')
+});

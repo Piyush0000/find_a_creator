@@ -11,3 +11,42 @@ body {
   color: rgb(var(--foreground-rgb));
   background: rgb(var(--background-rgb));
 }
+
+::selection {
+  background-color: #f43f5e;
+  color: #ffffff;
+}
+
+/* Vibrant Coral Brand Overrides */
+.bg-brand,
+.bg-indigo-600,
+.bg-indigo-500 {
+  background-color: #f43f5e !important;
+}
+
+.hover\:bg-indigo-700:hover,
+.hover\:bg-indigo-600:hover {
+  background-color: #e11d48 !important;
+}
+
+.text-brand,
+.text-indigo-600 {
+  color: #e11d48 !important;
+}
+
+.text-indigo-700 {
+  color: #be123c !important;
+}
+
+.border-indigo-600,
+.border-indigo-500 {
+  border-color: #f43f5e !important;
+}
+
+.border-indigo-200 {
+  border-color: #fecdd3 !important;
+}
+
+.bg-indigo-50 {
+  background-color: #fff1f2 !important;
+}

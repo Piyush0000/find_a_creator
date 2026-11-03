@@ -24,20 +24,20 @@ export default function HomePage() {
   const [activeTab, setActiveTab] = useState<'merchant' | 'creator' | 'admin'>('merchant');
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 antialiased selection:bg-indigo-600 selection:text-white">
-      {/* ── Top Subtle Brand Gradient Strip ── */}
-      <div className="h-1 bg-gradient-to-r from-indigo-500 via-indigo-600 to-violet-600" />
+    <div className="min-h-screen bg-slate-50 text-slate-900 antialiased selection:bg-rose-500 selection:text-white">
+      {/* ── Top Vibrant Coral & Gold Brand Strip ── */}
+      <div className="h-1 bg-gradient-to-r from-rose-500 via-rose-600 to-amber-500" />
 
       {/* ── Sticky Navbar ── */}
       <header className="sticky top-0 z-50 backdrop-blur-md bg-white/90 border-b border-slate-200/80">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center space-x-2.5 group">
-            <div className="h-8 w-8 rounded-lg bg-indigo-600 flex items-center justify-center font-bold text-white text-sm shadow-sm group-hover:bg-indigo-700 transition">
+            <div className="h-8 w-8 rounded-lg bg-gradient-to-tr from-rose-600 to-rose-500 flex items-center justify-center font-bold text-white text-sm shadow-sm shadow-rose-500/25 group-hover:scale-105 transition">
               E
             </div>
             <div>
               <span className="font-bold text-sm tracking-tight text-slate-900 flex items-center gap-1">
-                EVOC <span className="text-indigo-600">Labs</span>
+                EVOC <span className="text-rose-600">Labs</span>
               </span>
               <span className="block text-[9px] uppercase font-bold tracking-wider text-slate-400 -mt-0.5">
                 Creator Network

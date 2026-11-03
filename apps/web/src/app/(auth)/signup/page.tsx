@@ -214,6 +214,7 @@ export default function SignupPage() {
                   <input
                     type="email"
                     required
+                    autoComplete="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@company.com"
@@ -229,6 +230,7 @@ export default function SignupPage() {
                   <input
                     type="tel"
                     required
+                    autoComplete="tel"
                     value={phoneNumber}
                     onChange={(e) => setPhoneNumber(e.target.value)}
                     placeholder="9876543210"
@@ -246,6 +248,7 @@ export default function SignupPage() {
                 <input
                   type="password"
                   required
+                  autoComplete="new-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="At least 8 characters"
@@ -267,12 +270,16 @@ export default function SignupPage() {
                     <input
                       type="text"
                       required
+                      autoComplete="organization"
                       value={brandName}
                       onChange={(e) => setBrandName(e.target.value)}
                       placeholder="e.g. Glow Skincare"
                       className="w-full rounded-xl border border-slate-200 bg-slate-50/50 py-2.5 pl-9 pr-3 text-xs font-medium text-slate-900 placeholder-slate-400 focus:bg-white focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600 focus:outline-none transition"
                     />
                   </div>
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    Your brand/company name displayed in the top bar and collab briefs.
+                  </p>
                 </div>
               </div>
             ) : (

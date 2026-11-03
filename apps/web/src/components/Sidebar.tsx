@@ -11,6 +11,7 @@ import {
   Inbox,
   Video,
   ShieldAlert,
+  User,
   X,
   ChevronsLeft,
   ChevronsRight
@@ -22,7 +23,8 @@ export type PortalRole = 'CREATOR' | 'MERCHANT' | 'SUPER_ADMIN';
 export const NAV_LINKS: Record<PortalRole, Array<{ href: string; label: string; Icon: typeof Wallet }>> = {
   CREATOR: [
     { href: '/dashboard', label: 'Deals Kanban', Icon: Kanban },
-    { href: '/dashboard/wallet', label: 'Shopping Points', Icon: Wallet }
+    { href: '/dashboard/wallet', label: 'Shopping Points', Icon: Wallet },
+    { href: '/dashboard/profile', label: 'My Profile', Icon: User }
   ],
   MERCHANT: [
     { href: '/collabs', label: 'Collabs Dashboard', Icon: Inbox },
@@ -62,7 +64,7 @@ export default function Sidebar({ role, isMobileOpen, isCollapsed, onClose, onTo
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-[260px] flex-col border-r border-slate-200 bg-white transition-all duration-200 lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-[260px] flex-col border-r border-slate-200/80 bg-white text-slate-800 transition-all duration-200 lg:translate-x-0 ${
           isCollapsed ? 'lg:w-[72px]' : 'lg:w-[260px]'
         } ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'}`}
       >
@@ -73,11 +75,11 @@ export default function Sidebar({ role, isMobileOpen, isCollapsed, onClose, onTo
           }`}
         >
           <Link href={NAV_LINKS[role][0].href} className="flex items-center space-x-2.5" onClick={onClose}>
-            <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-white font-bold text-sm">
+            <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-gradient-to-tr from-rose-600 to-rose-500 text-white font-bold text-sm shadow-sm shadow-rose-500/25">
               E
             </span>
             <span className={`leading-tight ${hideLabels}`}>
-              <span className="block text-sm font-bold text-slate-900">EVOC Labs</span>
+              <span className="block text-sm font-bold text-slate-900">EVOC <span className="text-rose-600">Labs</span></span>
               <span className="block text-[10px] font-medium text-slate-400">{PORTAL_NAMES[role]}</span>
             </span>
           </Link>
@@ -104,11 +106,11 @@ export default function Sidebar({ role, isMobileOpen, isCollapsed, onClose, onTo
                   isCollapsed ? 'lg:justify-center' : ''
                 } ${
                   isActive
-                    ? 'bg-indigo-50 text-indigo-600 font-semibold'
+                    ? 'bg-rose-50 text-rose-600 font-semibold'
                     : 'text-slate-600 font-medium hover:bg-slate-50 hover:text-slate-900'
                 }`}
               >
-                <Icon className="h-4 w-4 flex-shrink-0" />
+                <Icon className={`h-4 w-4 flex-shrink-0 ${isActive ? 'text-rose-600' : 'text-slate-400'}`} />
                 <span className={`ml-3 truncate ${hideLabels}`}>{label}</span>
               </Link>
             );
